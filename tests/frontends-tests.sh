@@ -12,7 +12,8 @@ declare -A minMethodCount=(
   [c]=2
   [javascript]=3
   [javasrc]=7
-  [java]=7
+  # Don't test java since we're using javasrc for all Java srcs.
+  #[java]=7
   [ghidra]=100
   [pythonsrc]=2
 )
