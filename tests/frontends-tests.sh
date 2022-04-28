@@ -7,12 +7,14 @@ SCRIPT_ABS_DIR=$(dirname "$SCRIPT_ABS_PATH")
 
 JOERN="$SCRIPT_ABS_DIR"/../joern
 
-frontends=(c javascript javasrc java ghidra pythonsrc)
+# Don't test java since we're using javasrc for all Java srcs.
+# Originally, java came after javasrc below, was 7 for minMethodCount,
+# and callsExternalMethod for expectedMethod.
+frontends=(c javascript javasrc ghidra pythonsrc)
 declare -A minMethodCount=(
   [c]=2
   [javascript]=3
   [javasrc]=7
-  [java]=7
   [ghidra]=100
   [pythonsrc]=2
 )
@@ -20,7 +22,6 @@ declare -A expectedMethod=(
   [c]=print_number
   [javascript]=lookForProperty
   [javasrc]=callsExternalMethod
-  [java]=callsExternalMethod
   [ghidra]=reallocarray
   [pythonsrc]=my_fun
 )
