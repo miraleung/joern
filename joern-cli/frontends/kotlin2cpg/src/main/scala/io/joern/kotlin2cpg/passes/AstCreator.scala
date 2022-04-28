@@ -1,10 +1,11 @@
 package io.joern.kotlin2cpg.passes
 
-import io.joern.kotlin2cpg.KtFileWithMeta
 import io.joern.kotlin2cpg.ast.Nodes._
 import io.joern.kotlin2cpg.ast.Nodes.{methodReturnNode => _methodReturnNode}
-import io.joern.kotlin2cpg.types.{CallKinds, TypeConstants, TypeInfoProvider}
+import io.joern.kotlin2cpg.Constants
+import io.joern.kotlin2cpg.KtFileWithMeta
 import io.joern.kotlin2cpg.psi.Extractor._
+import io.joern.kotlin2cpg.types.{CallKinds, TypeConstants, TypeInfoProvider}
 import io.shiftleft.codepropertygraph.generated.nodes._
 import io.shiftleft.codepropertygraph.generated._
 import io.shiftleft.passes.IntervalKeyPool
@@ -20,39 +21,6 @@ import overflowdb.BatchedUpdate.DiffGraphBuilder
 
 import scala.jdk.CollectionConverters._
 import scala.annotation.tailrec
-
-object Constants {
-  val empty                          = "<empty>"
-  val lambdaName                     = "<lambda>"
-  val init                           = "<init>"
-  val root                           = "<root>"
-  val retCode                        = "RET"
-  val tryCode                        = "try"
-  val parserTypeName                 = "KOTLIN_PSI_PARSER"
-  val caseNodePrefix                 = "case"
-  val defaultCaseNode                = "default"
-  val caseNodeParserTypeName         = "CaseNode"
-  val unknownOperator                = "<operator>.unknown"
-  val operatorSuffix                 = "<operator>"
-  val paramNameLambdaDestructureDecl = "DESTRUCTURE_PARAM"
-  val wildcardImportName             = "*"
-  val lambdaBindingName              = "invoke"    // the underlying _invoke_ fn for Kotlin FunctionX types
-  val lambdaTypeDeclName             = "LAMBDA_TYPE_DECL"
-  val this_                          = "this"
-  val componentNPrefix               = "component"
-  val tmpLocalPrefix                 = "tmp_"
-  val ret                            = "RET"
-  val javaUtilIterator               = "java.util.Iterator"
-  val collectionsIteratorName        = "kotlin.collections.Iterator"
-  val getIteratorMethodName          = "iterator"
-  val iteratorPrefix                 = "iterator_"
-  val hasNextIteratorMethodName      = "hasNext"
-  val nextIteratorMethodName         = "next"
-  val codeForLoweredForBlock         = "FOR-BLOCK" // TODO: improve this
-  val underscore                     = "_"
-  val alloc                          = "alloc"
-  val when                           = "when"
-}
 
 case class ImportEntry(
   fqName: String,
@@ -212,7 +180,7 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
         // TODO: add more test cases for import directives
         // e.g. of a project where parsing fails with NPE if the null check in isWildcard is not in:
         // https://github.com/CypherpunkArmory/UserLAnd
-        val isWildcard = entry.getLastChild.getText == "*" || entry.getImportedName == null
+        val isWildcard = entry.getLastChild.getText == Constants.wildcardImportName || entry.getImportedName == null
         val importedName =
           if (isWildcard) {
             Constants.wildcardImportName
@@ -240,7 +208,7 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
         .isWildcard(entry.isWildcard)
         .isExplicit(entry.explicit)
         .importedEntity(entry.fqName)
-        .code("import " + entry.fqName)
+        .code(Constants.importKeyword + " " + entry.fqName)
         .order(order)
         .lineNumber(entry.lineNumber)
         .columnNumber(entry.column)
@@ -270,8 +238,8 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
     typeInfoProvider: TypeInfoProvider
   ): Seq[AstWithAdditionals] = {
     decl match {
-      case d: KtClass             => Seq(astForClassOrObject(d, order))
-      case d: KtObjectDeclaration => Seq(astForClassOrObject(d, order))
+      case d: KtClass             => astsForClassOrObject(d, order)
+      case d: KtObjectDeclaration => astsForClassOrObject(d, order)
       case d: KtNamedFunction     => Seq(astForMethod(d, order))
       case d: KtTypeAlias         => Seq(astForTypeAlias(d, order))
       case d: KtProperty          => astForTopLevelProperty(d, order)
@@ -314,11 +282,10 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
     AstWithAdditionals(Ast(node), Additionals())
   }
 
-  def astForClassOrObject(ktClass: KtClassOrObject, order: Int)(implicit
+  def astsForClassOrObject(ktClass: KtClassOrObject, order: Int)(implicit
     fileInfo: FileInfo,
     typeInfoProvider: TypeInfoProvider
-  ): AstWithAdditionals = {
-
+  ): Seq[AstWithAdditionals] = {
     val className = ktClass.getName
     val explicitFullName = {
       val fqName = ktClass.getContainingKtFile.getPackageFqName.toString
@@ -651,7 +618,11 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
       }
 
     val orderAfterComponentN = orderAfterCtors + componentNMethodAsts.size
-
+    val memberAsts =
+      withIndex(classDeclarations.asScala.toSeq) { (method, order) =>
+        astForMember(method, orderAfterComponentN + order)
+      }
+    val orderAfterMembers = orderAfterComponentN + memberAsts.size
     val ast =
       Ast(typeDecl)
         .withChildren(methodAstsWithCtx.map(_.ast))
@@ -659,15 +630,33 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
         .withChildren(membersFromPrimaryCtorAsts)
         .withChildren(secondaryConstructorAsts)
         .withChildren(componentNMethodAsts.toList)
-        .withChildren(withIndex(classDeclarations.asScala.toSeq) { (method, order) =>
-          astForMember(method, orderAfterComponentN + order)
-        })
+        .withChildren(memberAsts)
 
     val finalCtx = mergedAdditionals(
       methodAstsWithCtx.map(_.additionals) ++ List(Additionals(bindingsInfo = bindingsInfo ++ componentNBindingsInfo))
     )
+    val finalAst =
+      if (typeInfoProvider.isCompanionObject(ktClass)) {
+        val companionMemberTypeFullName =
+          ktClass.getParent.getParent match {
+            case c: KtClassOrObject => typeInfoProvider.typeFullName(c, TypeConstants.any)
+            case _                  => TypeConstants.any
+          }
+        registerType(companionMemberTypeFullName)
+
+        val companionObjectMember =
+          memberNode(Constants.companionObjectMemberName, companionMemberTypeFullName)
+            .order(orderAfterMembers)
+        ast.withChild(Ast(companionObjectMember))
+      } else {
+        ast
+      }
+    val companionObjectAstWithAdditionals =
+      if (ktClass.getCompanionObjects.isEmpty) Seq()
+      else astsForClassOrObject(ktClass.getCompanionObjects.asScala.head, order + 1)
     scope.popScope()
-    AstWithAdditionals(ast, finalCtx)
+
+    Seq(AstWithAdditionals(finalAst, finalCtx)) ++ companionObjectAstWithAdditionals
   }
 
   private def astForMethod(ktFn: KtNamedFunction, childNum: Int)(implicit
@@ -852,7 +841,7 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
           Seq(astForCall(typedExpr, order, argIdx))
         }
       case typedExpr: KtConstantExpression       => Seq(astForLiteral(typedExpr, order, argIdx))
-      case typedExpr: KtClass                    => Seq(astForClassOrObject(typedExpr, order))
+      case typedExpr: KtClass                    => astsForClassOrObject(typedExpr, order)
       case typedExpr: KtClassLiteralExpression   => Seq(astForClassLiteral(typedExpr, order, argIdx))
       case typedExpr: KtSafeQualifiedExpression  => Seq(astForQualifiedExpression(typedExpr, order, argIdx))
       case typedExpr: KtContinueExpression       => Seq(astForContinue(typedExpr, order))
@@ -2792,14 +2781,39 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
   private def astForNameReferenceToType(expr: KtNameReferenceExpression, order: Int, argIdx: Int)(implicit
     typeInfoProvider: TypeInfoProvider
   ): AstWithAdditionals = {
-    val typeFullName = typeInfoProvider.typeFullName(expr, TypeConstants.any)
-    registerType(typeFullName)
+    if (typeInfoProvider.isRefToCompanionObject(expr)) {
+      val typeFullName = typeInfoProvider.typeFullName(expr, TypeConstants.any)
+      registerType(typeFullName)
 
-    val node =
-      typeRefNode(expr.getIdentifier.getText, typeFullName, line(expr), column(expr))
-        .order(order)
-        .argumentIndex(argIdx)
-    AstWithAdditionals(Ast(node), Additionals())
+      val callNode =
+        operatorCallNode(Operators.fieldAccess, expr.getText, Some(typeFullName), line(expr), column(expr))
+          .order(order)
+          .argumentIndex(argIdx)
+
+      // TODO: change this to a TYPE_REF node as soon as the closed source data-flow engine supports it
+      val _identifierNode =
+        identifierNode(expr.getIdentifier.getText, typeFullName, line(expr), column(expr))
+          .order(1)
+          .argumentIndex(1)
+      val _fieldIdentifierNode =
+        fieldIdentifierNode(Constants.companionObjectMemberName, line(expr), column(expr))
+          .order(2)
+          .argumentIndex(2)
+      val ast =
+        Ast(callNode)
+          .withChildren(Seq(Ast(_identifierNode), Ast(_fieldIdentifierNode)))
+          .withArgEdges(callNode, Seq(_identifierNode, _fieldIdentifierNode))
+      AstWithAdditionals(ast, Additionals())
+    } else {
+      val typeFullName = typeInfoProvider.typeFullName(expr, TypeConstants.any)
+      registerType(typeFullName)
+
+      val node =
+        typeRefNode(expr.getIdentifier.getText, typeFullName, line(expr), column(expr))
+          .order(order)
+          .argumentIndex(argIdx)
+      AstWithAdditionals(Ast(node), Additionals())
+    }
   }
 
   private def astForNameReferenceToMember(expr: KtNameReferenceExpression, order: Int, argIdx: Int)(implicit
