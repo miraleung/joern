@@ -376,25 +376,48 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     clinitOrder: Int,
     astParentFullName: String
   ): AstWithStaticInit = {
+    val memberOrder  = if (member.getComment.isPresent) order + 1 else order
+    val commentOrder = order
     member match {
       case constructor: ConstructorDeclaration =>
-        val AstWithCtx(ast, ctx) = astForConstructor(constructor, order)
+        val AstWithCtx(ast, ctx) = astForConstructor(constructor, memberOrder)
         val rootNode             = Try(ast.root.get.asInstanceOf[NewMethod]).toOption
         val bindingInfo          = bindingForMethod(rootNode)
-        AstWithStaticInit(AstWithCtx(ast, ctx.addBindings(bindingInfo)))
+        val mainAst              = AstWithCtx(ast, ctx.addBindings(bindingInfo))
+        if (constructor.getComment.isPresent) {
+          val commentAst = AstWithCtx(astForComment(constructor.getComment.get(), commentOrder), mainAst.ctx)
+          AstWithStaticInit(Seq(commentAst, mainAst), Seq.empty)
+        } else {
+          AstWithStaticInit(mainAst)
+        }
 
       case method: MethodDeclaration =>
-        val AstWithCtx(ast, ctx) = astForMethod(method, order)
+        val AstWithCtx(ast, ctx) = astForMethod(method, memberOrder)
         val rootNode             = Try(ast.root.get.asInstanceOf[NewMethod]).toOption
         val bindingInfo          = bindingForMethod(rootNode)
-        AstWithStaticInit(AstWithCtx(ast, ctx.addBindings(bindingInfo)))
+        val mainAst              = AstWithCtx(ast, ctx.addBindings(bindingInfo))
+        if (method.getComment.isPresent) {
+          val commentAst = AstWithCtx(astForComment(method.getComment.get(), commentOrder), mainAst.ctx)
+          AstWithStaticInit(Seq(commentAst, mainAst), Seq.empty)
+        } else {
+          AstWithStaticInit(mainAst)
+        }
 
       case typeDeclaration: TypeDeclaration[_] =>
-        AstWithStaticInit(astForTypeDecl(typeDeclaration, order, "TYPE_DECL", astParentFullName))
+        AstWithStaticInit(astForTypeDecl(typeDeclaration, memberOrder, "TYPE_DECL", astParentFullName))
 
       case fieldDeclaration: FieldDeclaration =>
         val memberAsts = withOrder(fieldDeclaration.getVariables) { (variable, idx) =>
-          astForFieldVariable(variable, fieldDeclaration, order + idx - 1)
+          astForFieldVariable(variable, fieldDeclaration, memberOrder + idx - 1)
+        }
+
+        val commentAndFieldAsts = if (fieldDeclaration.getComment.isPresent) {
+          AstWithCtx(
+            astForComment(fieldDeclaration.getComment.get(), commentOrder),
+            mergedCtx(memberAsts.map(_.ctx))
+          ) +: memberAsts
+        } else {
+          memberAsts
         }
 
         val staticInitAsts = if (fieldDeclaration.isStatic) {
@@ -409,14 +432,20 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
           Nil
         }
 
-        AstWithStaticInit(memberAsts, staticInitAsts)
+        AstWithStaticInit(commentAndFieldAsts, staticInitAsts)
 
       case initDeclaration: InitializerDeclaration =>
         val stmts = initDeclaration.getBody.getStatements.asScala
         val asts = withOrderAndCtx(stmts, clinitOrder) { case (stmt, order) =>
           astsForStatement(stmt, order)
         }
-        AstWithStaticInit(astWithCtx = Seq.empty, staticInits = asts)
+        val commentAsts = if (initDeclaration.getComment.isPresent) {
+          Seq(AstWithCtx(astForComment(initDeclaration.getComment.get(), commentOrder), mergedCtx(asts.map(_.ctx))))
+        } else {
+          Seq.empty
+        }
+
+        AstWithStaticInit(astWithCtx = commentAsts, staticInits = asts)
 
       case unhandled =>
         // AnnotationMemberDeclarations and InitializerDeclarations as children of typeDecls are the
@@ -1095,7 +1124,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       case x                   => Seq(unknownAst(x, stmtOrder))
     }
     if (statement.getComment.isPresent) {
-      // TODO(miraleung): Add (block) comments from  field decls, methods, classes, files, etc.
       AstWithCtx(astForComment(statement.getComment.get(), commentOrder), mergedCtx(asts.map(_.ctx))) +: asts
     } else {
       asts
