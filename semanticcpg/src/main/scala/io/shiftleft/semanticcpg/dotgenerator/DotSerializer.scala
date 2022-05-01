@@ -69,6 +69,7 @@ object DotSerializer {
       case annoAssign: AnnotationParameterAssign => (annoAssign.label, annoAssign.code).toString()
       case annoParam: AnnotationParameter        => (annoParam.label, annoParam.code).toString()
       case typ: Type                             => (typ.label, typ.name).toString()
+      case comment: Comment                      => ("COMMENT", escape(comment.code)).toString()
       case _                                     => ""
     })
   }
