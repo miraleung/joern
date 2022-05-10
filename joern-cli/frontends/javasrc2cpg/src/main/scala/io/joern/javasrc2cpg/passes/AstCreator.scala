@@ -2467,6 +2467,9 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     closureBindings: Seq[ClosureBindingInfo],
     refEdgePairs: Seq[RefEdgePair]
   ): Ast = {
+
+    scopeStack.pushNewScope(NewMethod())
+
     val signature    = lambdaSignature(expr.getParameters.asScala.toList)
     val lineNumber   = line(expr)
     val columnNumber = column(expr)
@@ -2506,6 +2509,8 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     val lambdaMethodAstWithRefEdges = refEdgePairs.foldLeft(lambdaMethodAst)((acc, edgePair) => {
       acc.withRefEdge(edgePair.from, edgePair.to)
     })
+
+    scopeStack.popScope()
 
     lambdaMethodAstWithRefEdges
   }
