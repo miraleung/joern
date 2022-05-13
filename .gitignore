@@ -22,6 +22,7 @@ joern-cli/workspace/*
 joern-cli/frontends/kotlin2cpg/cpg*.bin*
 *.fuse_hidden*
 out/*
+orig_workspace/*
 workspace/*
 
 
