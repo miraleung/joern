@@ -41,6 +41,20 @@ then
   exit 1
 fi
 
+# Check for debug printfs.
+if [ $NUM_SCALA_FILES_CHANGED -gt 0 ]
+then
+  echo_status "Checking for debug printfs..."
+  DEBUG_PRINTFS=$(grep -nr "DEL:" ./ --include *.scala)
+  HAS_DEBUG_PRINTF=$(grep -nr "DEL:" ./ --include *.scala | wc -l)
+  if [ $HAS_DEBUG_PRINTF -gt 0 ]
+  then
+    echo $DEBUG_PRINTFS
+    echo_error "Found $HAS_DEBUG_PRINTF debug printfs, please remove them and try again"
+    exit 1
+  fi
+fi
+
 # Check Scala format.
 # Modifies files.
 if [ $NUM_SCALA_FILES_CHANGED -gt 0 ]
@@ -51,7 +65,8 @@ then
   if [ $NEW_NUM_SCALA_FILES_CHANGED != 0 ]
   then
     echo_status "Linting changed $(($NEW_NUM_SCALA_FILES_CHANGED - $NUM_SCALA_FILES_CHANGED)) additional files"
-    git add *.scala
+    echo_error "Please add the changed files and try again"
+    exit 1
   fi
   echo_status "All files linted!"
 fi
@@ -70,5 +85,3 @@ then
 fi
 
 echo_success
-
-
