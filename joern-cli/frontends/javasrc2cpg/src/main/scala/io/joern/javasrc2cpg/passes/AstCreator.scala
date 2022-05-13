@@ -78,6 +78,7 @@ import com.github.javaparser.ast.stmt.{
 import com.github.javaparser.resolution.{SymbolResolver, UnsolvedSymbolException}
 import com.github.javaparser.resolution.declarations.{
   ResolvedConstructorDeclaration,
+  ResolvedFieldDeclaration,
   ResolvedMethodDeclaration,
   ResolvedMethodLikeDeclaration,
   ResolvedReferenceTypeDeclaration
@@ -570,6 +571,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       val decl             = typ.asClassOrInterfaceDeclaration()
       val extendedTypes    = decl.getExtendedTypes.asScala
       val implementedTypes = decl.getImplementedTypes.asScala
+
       // For some reason, `typ.resolve().isInterface` returns `false` for interfaces,
       // so they now extend `Object` as well since checking for interfaces becomes
       // rather difficult.
@@ -2003,6 +2005,9 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
               // Instead we should take the using classes type which is either the same or a
               // sub class of the declaring class.
               typeInfoCalc.fullName(fieldDecl.declaringType())
+            case anotherFieldDecl: ResolvedFieldDeclaration =>
+              // This is created in JavaParserClassDeclaration.
+              typeInfoCalc.fullName(anotherFieldDecl)
           }
 
         val identifier = NewIdentifier()
