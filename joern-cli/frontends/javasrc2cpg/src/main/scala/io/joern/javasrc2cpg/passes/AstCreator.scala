@@ -3,6 +3,7 @@ package io.joern.javasrc2cpg.passes
 import com.github.javaparser.ast.`type`.TypeParameter
 import com.github.javaparser.ast.{CompilationUnit, Node, NodeList, PackageDeclaration}
 import com.github.javaparser.ast.body.{
+  AnnotationDeclaration,
   BodyDeclaration,
   CallableDeclaration,
   ConstructorDeclaration,
@@ -78,16 +79,26 @@ import com.github.javaparser.ast.stmt.{
 import com.github.javaparser.resolution.{SymbolResolver, UnsolvedSymbolException}
 import com.github.javaparser.resolution.declarations.{
   ResolvedConstructorDeclaration,
+  ResolvedFieldDeclaration,
   ResolvedMethodDeclaration,
   ResolvedMethodLikeDeclaration,
-  ResolvedReferenceTypeDeclaration
+  ResolvedReferenceTypeDeclaration,
+  ResolvedTypeDeclaration
 }
 import com.github.javaparser.resolution.types.parametrization.ResolvedTypeParametersMap
 import com.github.javaparser.resolution.types.{ResolvedType, ResolvedTypeVariable}
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserFieldDeclaration
 import com.github.javaparser.symbolsolver.model.typesystem.LazyType
+import io.joern.javasrc2cpg.util.BindingTable.createBindingTable
 import io.joern.javasrc2cpg.util.Scope.WildcardImportName
-import io.joern.javasrc2cpg.util.{NodeTypeInfo, Scope, TypeInfoCalculator}
+import io.joern.javasrc2cpg.util.{
+  BindingTable,
+  BindingTableAdapterForJavaparser,
+  BindingTableEntry,
+  NodeTypeInfo,
+  Scope,
+  TypeInfoCalculator
+}
 import io.joern.javasrc2cpg.util.TypeInfoCalculator.{TypeConstants, UnresolvedTypeDefault}
 import io.shiftleft.codepropertygraph.generated.{
   ControlStructureTypes,
@@ -188,8 +199,8 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
   private val scopeStack                       = Scope()
   private val typeInfoCalc: TypeInfoCalculator = new TypeInfoCalculator(global, symbolResolver)
   private val partialConstructorQueue: mutable.ArrayBuffer[PartialConstructor] = mutable.ArrayBuffer.empty
-  private val bindingsQueue: mutable.ArrayBuffer[BindingInfo]                  = mutable.ArrayBuffer.empty
   private val lambdaContextQueue: mutable.ArrayBuffer[Context]                 = mutable.ArrayBuffer.empty
+  private val bindingTableCache = mutable.HashMap.empty[String, BindingTable]
 
   /** Entry point of AST creation. Translates a compilation unit created by JavaParser into a DiffGraph containing the
     * corresponding CPG AST.
@@ -204,12 +215,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     */
   def storeInDiffGraph(ast: Ast): Unit = {
     Ast.storeInDiffGraph(ast, diffGraph)
-
-    bindingsQueue.foreach { bindingInfo =>
-      diffGraph.addNode(bindingInfo.newBinding)
-
-      diffGraph.addEdge(bindingInfo.typeDecl, bindingInfo.newBinding, EdgeTypes.BINDS)
-    }
 
     lambdaContextQueue.flatMap(_.closureBindingInfo).foreach { closureBindingInfo =>
       diffGraph.addNode(closureBindingInfo.node)
@@ -334,72 +339,76 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     }
   }
 
-  private def substituteTypeVariable(resolvedType: ResolvedType, typeParamValues: ResolvedTypeParametersMap): String = {
-    substituteTypeVariableInternal(resolvedType, typeParamValues)
-  }
-
-  @tailrec
-  private def substituteTypeVariableInternal(
-    resolvedType: ResolvedType,
+  private def constructorSignature(
+    constructor: ResolvedConstructorDeclaration,
     typeParamValues: ResolvedTypeParametersMap
   ): String = {
-    resolvedType match {
-      case lazyType: LazyType if lazyType.isTypeVariable =>
-        substituteTypeVariableInternal(lazyType.asTypeVariable(), typeParamValues)
-      case typeParamVariable: ResolvedTypeVariable =>
-        val typeParamDecl = typeParamVariable.asTypeParameter()
-        val assignedType  = typeParamValues.getValue(typeParamDecl)
-        if (assignedType.isTypeVariable && assignedType.asTypeParameter() == typeParamDecl) {
-          // This is the way the library tells us there is no assigned type.
-          typeParamDecl.getBounds.asScala.find(_.isExtends).map(_.getType.describe()).getOrElse(TypeConstants.Object)
-        } else {
-          substituteTypeVariableInternal(assignedType, typeParamValues)
-        }
-      case typ =>
-        typeInfoCalc.fullName(typ)
-    }
+    val parameterTypes = calcParameterTypes(constructor, typeParamValues)
+
+    composeMethodLikeSignature("void", parameterTypes)
   }
 
   private def methodSignature(method: ResolvedMethodDeclaration, typeParamValues: ResolvedTypeParametersMap): String = {
+    val parameterTypes = calcParameterTypes(method, typeParamValues)
+
+    val returnType =
+      Try(method.getReturnType).toOption
+        .map(returnType => typeInfoCalc.fullName(returnType, typeParamValues))
+        .getOrElse(UnresolvedTypeDefault)
+
+    composeMethodLikeSignature(returnType, parameterTypes)
+  }
+
+  private def calcParameterTypes(
+    methodLike: ResolvedMethodLikeDeclaration,
+    typeParamValues: ResolvedTypeParametersMap
+  ): collection.Seq[String] = {
     val parameterTypes =
-      Range(0, method.getNumberOfParams).map(method.getParam).map { param =>
-        substituteTypeVariable(param.getType, typeParamValues)
-      }
+      Range(0, methodLike.getNumberOfParams)
+        .flatMap { index =>
+          Try(methodLike.getParam(index)).toOption
+        }
+        .map { param =>
+          Try(param.getType).toOption
+            .map(paramType => typeInfoCalc.fullName(paramType, typeParamValues))
+            .getOrElse(UnresolvedTypeDefault)
+        }
 
-    val returnType = substituteTypeVariable(method.getReturnType, typeParamValues)
+    parameterTypes
+  }
 
+  private def composeMethodLikeSignature(returnType: String, parameterTypes: collection.Seq[String]): String = {
     s"$returnType(${parameterTypes.mkString(",")})"
   }
 
-  // For methods which override a method from a super class or interface, we
-  // also need to add bindings with the erased signature of the overridden
-  // methods. This methods calculated those signatures as well as the signature
-  // of the overriding method itself.
-  private def bindingSignatures(method: MethodDeclaration): Iterable[String] = {
-    Try {
-      val result              = mutable.LinkedHashSet.empty[String]
-      val resolvedMethod      = method.resolve()
-      val declType            = resolvedMethod.declaringType()
-      val origMethodErasedSig = methodSignature(resolvedMethod, ResolvedTypeParametersMap.empty())
-      result.add(origMethodErasedSig)
+  def getBindingTable(typeDecl: ResolvedReferenceTypeDeclaration): BindingTable = {
+    val fullName = typeInfoCalc.fullName(typeDecl)
+    bindingTableCache.getOrElseUpdate(
+      fullName,
+      createBindingTable(
+        fullName,
+        typeDecl,
+        getBindingTable,
+        methodSignature,
+        new BindingTableAdapterForJavaparser(methodSignature)
+      )
+    )
+  }
 
-      val ancestors = declType.getAllAncestors()
-      ancestors.asScala.foreach { ancestorType =>
-        val typeParameters   = ancestorType.typeParametersMap()
-        val ancestorTypeDecl = ancestorType.getTypeDeclaration.get
-        ancestorTypeDecl.getDeclaredMethods.asScala
-          .filter(_.getName == resolvedMethod.getName)
-          .foreach { ancestorMethod =>
-            val ancestorSig = methodSignature(ancestorMethod, typeParameters)
-            if (ancestorSig == origMethodErasedSig) {
-              val erasedSig = methodSignature(ancestorMethod, ResolvedTypeParametersMap.empty())
-              result.add(erasedSig)
-            }
-            ancestorSig
-          }
-      }
-      result
-    }.getOrElse(Nil)
+  def createBindingNodes(typeDeclNode: NewTypeDecl, bindingTable: BindingTable): Unit = {
+    // We only sort to get stable output.
+    val sortedEntries =
+      bindingTable.getEntries.toBuffer.sortBy((entry: BindingTableEntry) => entry.name + entry.signature)
+
+    sortedEntries.foreach { entry =>
+      val bindingNode = NewBinding()
+        .name(entry.name)
+        .signature(entry.signature)
+        .methodFullName(entry.implementingMethodFullName)
+
+      diffGraph.addNode(bindingNode)
+      diffGraph.addEdge(typeDeclNode, bindingNode, EdgeTypes.BINDS)
+    }
   }
 
   private def astForTypeDeclMember(
@@ -412,10 +421,8 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     val commentOrder = order
     member match {
       case constructor: ConstructorDeclaration =>
-        val ast         = astForConstructor(constructor)
-        val rootNode    = Try(ast.root.get.asInstanceOf[NewMethod]).toOption
-        val bindingInfo = bindingForMethod(rootNode, Nil)
-        bindingsQueue.addAll(bindingInfo)
+        val ast      = astForConstructor(constructor)
+        val rootNode = Try(ast.root.get.asInstanceOf[NewMethod]).toOption
 
         if (constructor.getComment.isPresent) {
           val commentAst = astForComment(constructor.getComment.get(), commentOrder)
@@ -425,10 +432,8 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
         }
 
       case method: MethodDeclaration =>
-        val ast         = astForMethod(method)
-        val rootNode    = Try(ast.root.get.asInstanceOf[NewMethod]).toOption
-        val bindingInfo = bindingForMethod(rootNode, bindingSignatures(method))
-        bindingsQueue.addAll(bindingInfo)
+        val ast      = astForMethod(method)
+        val rootNode = Try(ast.root.get.asInstanceOf[NewMethod]).toOption
 
         if (method.getComment.isPresent) {
           val commentAst = astForComment(method.getComment.get(), commentOrder)
@@ -651,6 +656,17 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       .withChildren(annotationAsts)
       .withChildren(clinitAst.toSeq)
 
+    // Annotation declarations need no binding table as objects of this
+    // typ never get called from user code.
+    // Furthermore the parser library throws an exception when trying to
+    // access e.g. the declared methods of an annotation declaration.
+    if (!typ.isInstanceOf[AnnotationDeclaration]) {
+      Try(typ.resolve()).toOption.foreach { resolvedTypeDecl =>
+        val bindingTable = getBindingTable(resolvedTypeDecl)
+        createBindingNodes(typeDecl, bindingTable)
+      }
+    }
+
     scopeStack.popScope()
 
     typeDeclAst
@@ -676,9 +692,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       Ast(NewModifier().modifierType(ModifierTypes.CONSTRUCTOR)),
       Ast(NewModifier().modifierType(ModifierTypes.PUBLIC))
     )
-
-    val bindingsInfo = bindingForMethod(Some(constructorNode), Nil)
-    bindingsQueue.addAll(bindingsInfo)
 
     Ast(constructorNode)
       .withChildren(modifiers)
@@ -1998,7 +2011,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
 
         val identifierTypeFullName =
           value match {
-            case fieldDecl: JavaParserFieldDeclaration =>
+            case fieldDecl: ResolvedFieldDeclaration =>
               // TODO It is not quite correct to use the declaring classes type.
               // Instead we should take the using classes type which is either the same or a
               // sub class of the declaring class.
@@ -2086,24 +2099,34 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     */
   def astForObjectCreationExpr(expr: ObjectCreationExpr, order: Int, expectedType: Option[String]): Ast = {
     val maybeResolvedExpr = Try(expr.resolve())
-    val args = withOrder(expr.getArguments) { (x, o) =>
+    val argumentAsts = withOrder(expr.getArguments) { (x, o) =>
       val expectedArgType = getExpectedParamType(maybeResolvedExpr, o - 1)
       astsForExpression(x, o, expectedArgType)
     }.flatten
 
-    val name = Operators.alloc
+    val allocFullName = Operators.alloc
     val typeFullName = typeInfoCalc
       .fullName(expr.getType)
       .orElse(expectedType)
-      .getOrElse(UnresolvedTypeDefault)
-    val argTypes = args.map { arg =>
-      arg.root.flatMap(_.properties.get(PropertyNames.TYPE_FULL_NAME)).getOrElse(UnresolvedTypeDefault)
-    }
-    val signature = s"void(${argTypes.mkString(",")})"
+      .getOrElse("<unresolvedType>")
+
+    val signature =
+      maybeResolvedExpr match {
+        case Success(constructor) =>
+          constructorSignature(constructor, ResolvedTypeParametersMap.empty())
+        case _ =>
+          // Fallback. Method could not be resolved. So we fall back to using
+          // expressionTypeFullName and the argument types to approximate the method
+          // signature.
+          val argumentTypes = argumentAsts.map(arg => rootType(arg).getOrElse(UnresolvedTypeDefault))
+          composeMethodLikeSignature("void", argumentTypes)
+      }
+
+    val initFullName = s"$typeFullName.<init>:$signature"
 
     val allocNode = NewCall()
-      .name(name)
-      .methodFullName(name)
+      .name(allocFullName)
+      .methodFullName(allocFullName)
       .code(expr.toString)
       .dispatchType(DispatchTypes.STATIC_DISPATCH)
       .order(order)
@@ -2115,7 +2138,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
 
     val initNode = NewCall()
       .name("<init>")
-      .methodFullName(s"$typeFullName.<init>:$signature")
+      .methodFullName(initFullName)
       .lineNumber(line(expr))
       .typeFullName("void")
       .code(expr.toString)
@@ -2124,11 +2147,11 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
 
     // Assume that a block ast is required, since there isn't enough information to decide otherwise.
     // This simplifies logic elsewhere, and unnecessary blocks will be garbage collected soon.
-    val blockAst = blockAstForConstructorInvocation(line(expr), column(expr), allocNode, initNode, args, order)
+    val blockAst = blockAstForConstructorInvocation(line(expr), column(expr), allocNode, initNode, argumentAsts, order)
 
     expr.getParentNode.toScala match {
       case Some(parent) if parent.isInstanceOf[VariableDeclarator] || parent.isInstanceOf[AssignExpr] =>
-        val partialConstructor = PartialConstructor(initNode, args, blockAst)
+        val partialConstructor = PartialConstructor(initNode, argumentAsts, blockAst)
         partialConstructorQueue.append(partialConstructor)
         Ast(allocNode)
 
@@ -2582,27 +2605,13 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     }
   }
 
-  private def rootName(ast: Ast): Option[String] = {
-    ast.root.flatMap(_.properties.get(PropertyNames.NAME).map(_.toString))
-  }
-
   private def argumentTypesForCall(maybeMethod: Try[ResolvedMethodLikeDeclaration], argAsts: Seq[Ast]): List[String] = {
     maybeMethod match {
       case Success(resolved) =>
-        val matchingArgs = argAsts.headOption match {
-          case Some(ast) if rootName(ast).contains("this") =>
-            argAsts.tail
-
-          case _ => argAsts
-        }
-
-        (0 until resolved.getNumberOfParams)
-          .zip(matchingArgs)
-          .map { case (idx, argAst) =>
-            val param = resolved.getParam(idx)
-            typeInfoCalc.fullName(param.getType)
-          }
-          .toList
+        (0 until resolved.getNumberOfParams).map { idx =>
+          val param = resolved.getParam(idx)
+          typeInfoCalc.fullName(param.getType)
+        }.toList
 
       case Failure(_) =>
         // Fall back to actual argument types if the called method couldn't be resolved.
@@ -2619,32 +2628,37 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       astsForExpression(arg, o, expectedType)
     }.flatten
 
-    val maybeReturnType =
-      Try(call.resolve())
-        .map(resolvedMethod => typeInfoCalc.fullName(resolvedMethod.getReturnType()))
-        .toOption
-        .orElse(expectedReturnType)
+    val expressionTypeFullName = expressionReturnTypeFullName(call)
+      .orElse(expectedReturnType)
+      .getOrElse(UnresolvedTypeDefault)
+
+    val signature =
+      maybeResolvedCall match {
+        case Success(method) =>
+          methodSignature(method, ResolvedTypeParametersMap.empty())
+        case _ =>
+          // Fallback. Method could not be resolved. So we fall back to using
+          // expressionTypeFullName and the argument types to approximate the method
+          // signature.
+          val argumentTypes = argumentAsts.map(arg => rootType(arg).getOrElse(UnresolvedTypeDefault))
+          composeMethodLikeSignature(expressionTypeFullName, argumentTypes)
+      }
+
+    val receiverTypeOption = targetTypeForCall(call)
+
+    val methodFullName =
+      receiverTypeOption match {
+        case Some(receiverType) =>
+          s"$receiverType.${call.getNameAsString}:$signature"
+        case None =>
+          s"<unresolvedReceiverType>.${call.getNameAsString}:$signature"
+      }
 
     val dispatchType = dispatchTypeForCall(maybeResolvedCall, call.getScope.toScala)
 
-    val maybeTargetType = targetTypeForCall(call)
-
-    val argumentTypes = argumentTypesForCall(maybeResolvedCall, argumentAsts)
-
-    val (signature, methodFullName) = (maybeTargetType, maybeReturnType) match {
-      case (Some(targetType), Some(returnType)) =>
-        val signature      = s"$returnType(${argumentTypes.mkString(",")})"
-        val methodFullName = s"$targetType.${call.getNameAsString}:$signature"
-        (signature, methodFullName)
-
-      case _ =>
-        ("", "")
-    }
-
-    val expressionTypeFullName = expressionReturnTypeFullName(call).orElse(expectedReturnType)
-    val codePrefix             = codePrefixForMethodCall(call)
+    val codePrefix = codePrefixForMethodCall(call)
     val callNode = NewCall()
-      .typeFullName(expressionTypeFullName.getOrElse(UnresolvedTypeDefault))
+      .typeFullName(expressionTypeFullName)
       .name(call.getNameAsString)
       .methodFullName(methodFullName)
       .signature(signature)
@@ -2657,10 +2671,10 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
 
     val scopeAsts = call.getScope.toScala match {
       case Some(scope) =>
-        astsForExpression(scope, 0, maybeTargetType)
+        astsForExpression(scope, 0, receiverTypeOption)
 
       case None =>
-        val objectNode = createObjectNode(maybeTargetType.getOrElse(UnresolvedTypeDefault), call, callNode)
+        val objectNode = createObjectNode(receiverTypeOption.getOrElse(UnresolvedTypeDefault), call, callNode)
         objectNode.map(Ast(_)).toList
     }
 

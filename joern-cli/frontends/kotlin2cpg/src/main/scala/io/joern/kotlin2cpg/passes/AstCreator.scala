@@ -50,9 +50,9 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
 
   def createAst(): DiffGraphBuilder = {
     implicit val typeInfoProvider: TypeInfoProvider = xTypeInfoProvider
-    logger.debug("Started parsing of file `" + fileWithMeta.filename + "`")
+    logger.debug(s"Started parsing file `${fileWithMeta.filename}`.")
 
-    val defaultTypes = Set(TypeConstants.javaLangObject)
+    val defaultTypes = Set(TypeConstants.javaLangObject, TypeConstants.kotlin)
     defaultTypes.foreach { t =>
       registerType(t)
     }
@@ -848,16 +848,16 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
       case typedExpr: KtWhileExpression               => Seq(astForWhile(typedExpr, order))
       case typedExpr: KtNamedFunction =>
         logger.debug(
-          "Creating empty AST node for unknown expression `${typedExpr.getClass}` with text `${typedExpr.getText}`"
+          s"Creating empty AST node for unknown expression `${typedExpr.getClass}` with text `${typedExpr.getText}`."
         )
         Seq(astForUnknown(typedExpr, order, argIdx))
       case null =>
-        logger.debug("Received null expression! Skipping...")
+        logger.trace("Received null expression! Skipping...")
         Seq()
       // TODO: handle `KtCallableReferenceExpression` like `this::baseTerrain`
       case unknownExpr =>
         logger.debug(
-          "Creating empty AST node for unknown expression `" + unknownExpr.getClass + "` with text `" + unknownExpr.getText + "`"
+          s"Creating empty AST node for unknown expression `${unknownExpr.getClass}` with text `${unknownExpr.getText}`."
         )
         Seq(astForUnknown(unknownExpr, order, argIdx))
     }
@@ -985,7 +985,7 @@ class AstCreator(fileWithMeta: KtFileWithMeta, xTypeInfoProvider: TypeInfoProvid
 
     val lambdaTypeDeclFullName = fullNameWithSig._1.split(":").head
     val methodRef =
-      methodRefNode(expr.getName, fullNameWithSig._1, lambdaTypeDeclFullName, line(expr), column(expr))
+      methodRefNode(expr.getText, fullNameWithSig._1, lambdaTypeDeclFullName, line(expr), column(expr))
         .order(order)
         .argumentIndex(argIdx)
     val returnNode =
