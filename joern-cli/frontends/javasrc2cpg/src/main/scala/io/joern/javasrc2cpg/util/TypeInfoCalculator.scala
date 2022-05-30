@@ -22,6 +22,7 @@ import com.github.javaparser.resolution.types.{
   ResolvedWildcard
 }
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserClassDeclaration
+import com.github.javaparser.symbolsolver.logic.InferenceVariableType
 import com.github.javaparser.symbolsolver.model.typesystem.{LazyType, NullType}
 import com.github.javaparser.symbolsolver.reflectionmodel.{ReflectionClassDeclaration, ReflectionTypeParameter}
 import io.joern.javasrc2cpg.util.TypeInfoCalculator.{TypeConstants, TypeNameConstants}
@@ -62,16 +63,24 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         nameOrFullName(refType.getTypeDeclaration.get, fullyQualified)
       case lazyType: LazyType =>
         lazyType match {
-          case _ if lazyType.isReferenceType =>
+          case _
+              if Try(lazyType.isReferenceType).toOption.isDefined
+                && Try(lazyType.isReferenceType).toOption.get =>
             nameOrFullName(lazyType.asReferenceType(), typeParamValues, fullyQualified)
-          case _ if lazyType.isTypeVariable =>
+          case _
+              if Try(lazyType.isTypeVariable).toOption.isDefined
+                && Try(lazyType.isTypeVariable).toOption.get =>
             nameOrFullName(lazyType.asTypeVariable(), typeParamValues, fullyQualified)
-          case _ if lazyType.isArray =>
+          case _
+              if Try(lazyType.isArray).toOption.isDefined
+                && Try(lazyType.isArray).toOption.get =>
             nameOrFullName(lazyType.asArrayType(), typeParamValues, fullyQualified)
-          case _ if lazyType.isPrimitive =>
+          case _ if Try(lazyType.isPrimitive).toOption.isDefined && Try(lazyType.isPrimitive).get =>
             nameOrFullName(lazyType.asPrimitive(), typeParamValues, fullyQualified)
-          case _ if lazyType.isWildcard =>
+          case _ if Try(lazyType.isWildcard).toOption.isDefined && Try(lazyType.isWildcard).get =>
             nameOrFullName(lazyType.asWildcard(), typeParamValues, fullyQualified)
+          case _ =>
+            objectType(fullyQualified)
         }
       case voidType: ResolvedVoidType =>
         voidType.describe()
@@ -82,17 +91,25 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
       case nullType: NullType =>
         nullType.describe()
       case typeVariable: ResolvedTypeVariable =>
-        val typeParamDecl   = typeVariable.asTypeParameter()
-        val substitutedType = typeParamValues.getValue(typeParamDecl)
-
+        val typeParamDecl      = typeVariable.asTypeParameter()
+        val substitutedTypeOpt = Try(typeParamValues.getValue(typeParamDecl)).toOption
         // This is the way the library tells us there is no substitution happened.
-        if (substitutedType.isTypeVariable && substitutedType.asTypeParameter() == typeParamDecl) {
-          val extendsBoundOption = typeParamDecl.getBounds.asScala.find(_.isExtends)
-          extendsBoundOption
-            .map(bound => nameOrFullName(bound.getType, typeParamValues, fullyQualified))
-            .getOrElse(objectType(fullyQualified))
+        if (substitutedTypeOpt.isDefined) {
+          val extendsBoundOption = Try(typeParamDecl.getBounds.asScala.find(_.isExtends)).toOption
+          val isTypeVarOpt       = Try(substitutedTypeOpt.get.isTypeVariable).toOption
+          if (
+            extendsBoundOption.isDefined
+            && isTypeVarOpt.isDefined && isTypeVarOpt.get
+            && substitutedTypeOpt.get.asTypeParameter() == typeParamDecl
+          ) {
+            extendsBoundOption.get
+              .map(bound => nameOrFullName(bound.getType, typeParamValues, fullyQualified))
+              .getOrElse(objectType(fullyQualified))
+          } else {
+            nameOrFullName(substitutedTypeOpt.get, typeParamValues, fullyQualified)
+          }
         } else {
-          nameOrFullName(substitutedType, typeParamValues, fullyQualified)
+          objectType(fullyQualified)
         }
       case lambdaConstraintType: ResolvedLambdaConstraintType =>
         nameOrFullName(lambdaConstraintType.getBound, typeParamValues, fullyQualified)
@@ -112,6 +129,8 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         } else {
           objectType(fullyQualified)
         }
+      case inferenceVariableType: InferenceVariableType =>
+        inferenceVariableType.describe()
     }
   }
 
