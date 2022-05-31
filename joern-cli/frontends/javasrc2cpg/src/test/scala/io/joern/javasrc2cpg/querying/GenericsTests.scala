@@ -144,8 +144,8 @@ class GenericsTests extends JavaSrcCodeToCpgFixture {
   "it should handle generics with upper bounds" in {
     cpg.method.name("idK").l match {
       case method :: Nil =>
-        method.fullName shouldBe "Box.idK:java.lang.Number(java.lang.Number)"
-        method.signature shouldBe "java.lang.Number(java.lang.Number)"
+        method.fullName shouldBe "Box.idK:java.lang.Object(java.lang.Object)"
+        method.signature shouldBe "java.lang.Object(java.lang.Object)"
 
       case res => fail(s"Expected method idK but found $res")
     }
@@ -154,8 +154,8 @@ class GenericsTests extends JavaSrcCodeToCpgFixture {
   "it should handle generics with compound upper bounds" in {
     cpg.method.name("idKC").l match {
       case method :: Nil =>
-        method.fullName shouldBe "Box.idKC:java.lang.Number(java.lang.Number)"
-        method.signature shouldBe "java.lang.Number(java.lang.Number)"
+        method.fullName shouldBe "Box.idKC:java.lang.Object(java.lang.Object)"
+        method.signature shouldBe "java.lang.Object(java.lang.Object)"
 
       case res => fail(s"Expected method idKC but found $res")
     }
@@ -164,8 +164,8 @@ class GenericsTests extends JavaSrcCodeToCpgFixture {
   "it should handle generics with an interface upper bound" in {
     cpg.method.name("idC").l match {
       case method :: Nil =>
-        method.fullName shouldBe "Box.idC:java.lang.Comparable(java.lang.Comparable)"
-        method.signature shouldBe "java.lang.Comparable(java.lang.Comparable)"
+        method.fullName shouldBe "Box.idC:java.lang.Object(java.lang.Object)"
+        method.signature shouldBe "java.lang.Object(java.lang.Object)"
 
       case res => fail(s"Expected method idC but found $res")
     }
