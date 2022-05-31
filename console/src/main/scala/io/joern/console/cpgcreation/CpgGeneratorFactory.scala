@@ -60,7 +60,7 @@ class CpgGeneratorFactory(config: ConsoleConfig) {
     outputPath: String,
     namespaces: List[String] = List()
   ): Option[Path] = {
-    val outputFileOpt: Option[File] =
+    lazy val outputFileOpt: Option[File] =
       frontend.generate(inputPath, outputPath, namespaces).map(File(_))
     outputFileOpt.map { outFile =>
       val parentPath = outFile.parent.path.toAbsolutePath

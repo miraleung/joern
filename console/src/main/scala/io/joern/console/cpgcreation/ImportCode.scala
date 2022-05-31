@@ -127,7 +127,7 @@ class ImportCode[T <: Project](console: io.joern.console.Console[T]) {
     val name = Option(projectName).filter(_.nonEmpty).getOrElse(deriveNameFromInputPath(inputPath, workspace))
     report(s"Creating project `$name` for code at `$inputPath`")
 
-    val cpgMaybe = for {
+    lazy val cpgMaybe = for {
       pathToProject <- workspace.createProject(inputPath, name)
       frontendCpgOutFile = pathToProject.resolve(nameOfLegacyCpgInProject)
       _   <- generatorFactory.runGenerator(frontend, inputPath, frontendCpgOutFile.toString, namespaces)

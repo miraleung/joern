@@ -260,7 +260,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
 
       scopeStack.pushNewScope(namespaceScopeNode)
       addImportsToScope(compilationUnit)
-
       val typeDeclAsts = withOrder(compilationUnit.getTypes) { (typ, order) =>
         astForTypeDecl(typ, order, astParentType = "NAMESPACE_BLOCK", astParentFullName = namespaceBlockFullName)
       }
@@ -987,7 +986,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
   }
 
   private def astForMethod(methodDeclaration: MethodDeclaration): Ast = {
-
     scopeStack.pushNewScope(NewMethod())
 
     val typeParamMap = getTypeParameterMap(methodDeclaration.getTypeParameters.asScala)

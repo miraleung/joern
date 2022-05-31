@@ -26,15 +26,15 @@ class AstCreationPass(codeDir: String, filenames: List[String], inferenceJarPath
     extends ConcurrentWriterCpgPass[String](cpg) {
 
   val global: Global              = new Global()
-  private val logger              = LoggerFactory.getLogger(classOf[AstCreationPass])
+  lazy private val logger         = LoggerFactory.getLogger(classOf[AstCreationPass])
   lazy private val symbolResolver = createSymbolSolver()
 
   override def generateParts(): Array[String] = filenames.toArray
 
   override def runOnPart(diffGraph: DiffGraphBuilder, filename: String): Unit = {
-    val parserConfig = new ParserConfiguration().setSymbolResolver(symbolResolver)
-    val parser       = new JavaParser(parserConfig)
-    val parseResult  = parser.parse(new java.io.File(filename))
+    lazy val parserConfig = new ParserConfiguration().setSymbolResolver(symbolResolver)
+    lazy val parser       = new JavaParser(parserConfig)
+    lazy val parseResult  = parser.parse(new java.io.File(filename))
 
     parseResult.getProblems.asScala.toList match {
       case Nil => // Just carry on as usual
