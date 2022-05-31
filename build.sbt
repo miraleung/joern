@@ -45,7 +45,8 @@ ThisBuild / compile / javacOptions ++= Seq(
 )
 
 ThisBuild / scalacOptions ++= Seq(
-  "-deprecation" // Emit warning and location for usages of deprecated APIs.
+  "-deprecation", // Emit warning and location for usages of deprecated APIs.
+  "-Yrepl-class-based"
 )
 
 lazy val createDistribution = taskKey[File]("Create a complete Joern distribution")

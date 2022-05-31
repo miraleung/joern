@@ -25,8 +25,8 @@ abstract class CpgGenerator() {
       System.err.println(s"CPG generator does not exist at: $program")
       return None
     }
-    val cmd       = Seq[String](program) ++ arguments
-    val exitValue = cmd.run().exitValue()
+    val cmd            = Seq[String](program) ++ arguments
+    lazy val exitValue = cmd.run().exitValue()
     if (exitValue == 0) {
       Some(cmd.toString)
     } else {
