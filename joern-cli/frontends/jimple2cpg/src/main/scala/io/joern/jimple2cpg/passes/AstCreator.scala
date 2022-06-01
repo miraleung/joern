@@ -62,9 +62,10 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
   }
 
   /** Creates a list of all inherited classes and implemented interfaces. If there are none then a list with a single
-    * element 'java.lang.Object' is returned by default.
+    * element 'java.lang.Object' is returned by default. Returns two lists in the form of (List[Super Classes],
+    * List[Interfaces]).
     */
-  private def listOfSuperClasses(clazz: SootClass): List[String] = {
+  private def inheritedAndImplementedClasses(clazz: SootClass): (List[String], List[String]) = {
     val implementsTypeFullName = clazz.getInterfaces.asScala.map { (i: SootClass) =>
       registerType(i.getType.toQuotedString)
     }.toList
@@ -75,7 +76,7 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
         List(registerType("java.lang.Object"))
       } else List()
 
-    inheritsFromTypeFullName ++ implementsTypeFullName
+    (inheritsFromTypeFullName, implementsTypeFullName)
   }
 
   /** Creates the AST root for type declarations and acts as the entry point for method generation.
@@ -83,14 +84,32 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
   private def astForTypeDecl(typ: RefType, namespaceBlockFullName: String): Ast = {
     val fullName  = registerType(typ.toQuotedString)
     val shortName = typ.getSootClass.getShortJavaStyleName
+    val clz       = typ.getSootClass
+    val code      = new mutable.StringBuilder()
+
+    if (clz.isPublic) code.append("public ")
+    else if (clz.isPrivate) code.append("private ")
+    if (clz.isStatic) code.append("static ")
+    if (clz.isFinal) code.append("final ")
+    if (clz.isInterface) code.append("interface ")
+    else if (clz.isAbstract) code.append("abstract ")
+    if (clz.isEnum) code.append("enum ")
+    if (!clz.isInterface) code.append(s"class $shortName")
+    else code.append(shortName)
+
+    val modifiers                = astsForModifiers(clz)
+    val (inherited, implemented) = inheritedAndImplementedClasses(typ.getSootClass)
+
+    if (inherited.nonEmpty) code.append(s" extends ${inherited.mkString(", ")}")
+    if (implemented.nonEmpty) code.append(s" implements ${implemented.mkString(", ")}")
 
     val typeDecl = NewTypeDecl()
       .name(shortName)
       .fullName(fullName)
       .order(1) // Jimple always has 1 class per file
       .filename(filename)
-      .code(shortName)
-      .inheritsFromTypeFullName(listOfSuperClasses(typ.getSootClass))
+      .code(code.toString())
+      .inheritsFromTypeFullName(inherited ++ implemented)
       .astParentType(NodeTypes.NAMESPACE_BLOCK)
       .astParentFullName(namespaceBlockFullName)
     val methodAsts = withOrder(typ.getSootClass.getMethods.asScala.toList.sortWith((x, y) => x.getName > y.getName)) {
@@ -109,6 +128,7 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
     Ast(typeDecl)
       .withChildren(memberAsts)
       .withChildren(methodAsts)
+      .withChildren(modifiers)
   }
 
   private def astForField(field: SootField, order: Int): Ast = {
@@ -222,14 +242,12 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
   }
 
   private def astsForMethodTags(methodDeclaration: SootMethod): Seq[Ast] = {
-    methodDeclaration.getTags.asScala.flatMap {
-      case x: VisibilityAnnotationTag =>
+    methodDeclaration.getTags.asScala
+      .collect { case x: VisibilityAnnotationTag => x }
+      .flatMap { x =>
         withOrder(x.getAnnotations.asScala) { (a, order) => astsForAnnotations(a, order, methodDeclaration) }
-      case _: AnnotationDefaultTag => Seq(Ast())
-      case x =>
-        logger.warn(s"Unhandled method tag '${x.getClass}' skipping...'")
-        Seq(Ast())
-    }.toSeq
+      }
+      .toSeq
   }
 
   private def astsForAnnotations(annotation: AnnotationTag, order: Int, methodDeclaration: AbstractHost): Ast = {
@@ -262,7 +280,7 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
     }
     val lineNo      = line(parent)
     val columnNo    = column(parent)
-    val codeBuilder = new StringBuilder()
+    val codeBuilder = new mutable.StringBuilder()
     val astChildren = ListBuffer.empty[Ast]
     if (annoElement.getName != null) {
       astChildren.append(
@@ -320,7 +338,7 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
     val block        = NewBlock().order(order).lineNumber(line(body)).columnNumber(column(body))
     val jimpleParams = body.getParameterLocals.asScala.toList
     // Don't let parameters also become locals (avoiding duplication)
-    val jimpleLocals = body.getLocals.asScala.filterNot(jimpleParams.contains).toList
+    val jimpleLocals = body.getLocals.asScala.filterNot(l => jimpleParams.contains(l) || l.getName == "this").toList
     val locals = withOrder(jimpleLocals) { case (l, order) =>
       val name         = l.getName
       val typeFullName = registerType(l.getType.toQuotedString)
@@ -365,6 +383,7 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
   }
 
   private def astForBinOpExpr(binOp: BinopExpr, order: Int, parentUnit: soot.Unit): Ast = {
+    // https://javadoc.io/static/org.soot-oss/soot/4.3.0/soot/jimple/BinopExpr.html
     val operatorName = binOp match {
       case _: AddExpr  => Operators.addition
       case _: SubExpr  => Operators.subtraction
@@ -385,7 +404,10 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
       case _: OrExpr   => Operators.or
       case _: XorExpr  => Operators.xor
       case _: EqExpr   => Operators.equals
-      case _           => ""
+      case _: NeExpr   => Operators.notEquals
+      case _ =>
+        logger.warn(s"Unhandled binary operator ${binOp.getSymbol} (${binOp.getClass}). This is unexpected behaviour.")
+        "<operator>.unknown"
     }
 
     val callNode = NewCall()
@@ -1015,6 +1037,23 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
         Some(ModifierTypes.VIRTUAL)
       else None,
       if (methodDeclaration.isSynchronized) Some("SYNCHRONIZED") else None
+    ).flatten.map { modifier =>
+      Ast(NewModifier().modifierType(modifier).code(modifier.toLowerCase))
+    }
+  }
+
+  private def astsForModifiers(classDeclaration: SootClass): Seq[Ast] = {
+    Seq(
+      if (classDeclaration.isStatic) Some(ModifierTypes.STATIC) else None,
+      if (classDeclaration.isPublic) Some(ModifierTypes.PUBLIC) else None,
+      if (classDeclaration.isProtected) Some(ModifierTypes.PROTECTED) else None,
+      if (classDeclaration.isPrivate) Some(ModifierTypes.PRIVATE) else None,
+      if (classDeclaration.isAbstract) Some(ModifierTypes.ABSTRACT) else None,
+      if (classDeclaration.isInterface) Some("INTERFACE") else None,
+      if (!classDeclaration.isFinal && !classDeclaration.isStatic && classDeclaration.isPublic)
+        Some(ModifierTypes.VIRTUAL)
+      else None,
+      if (classDeclaration.isSynchronized) Some("SYNCHRONIZED") else None
     ).flatten.map { modifier =>
       Ast(NewModifier().modifierType(modifier).code(modifier.toLowerCase))
     }

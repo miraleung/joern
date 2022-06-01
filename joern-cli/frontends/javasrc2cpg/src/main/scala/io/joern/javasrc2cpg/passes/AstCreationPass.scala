@@ -12,7 +12,8 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.{
   JavaParserTypeSolver,
   ReflectionTypeSolver
 }
-import io.joern.javasrc2cpg.util.SourceRootFinder
+import io.joern.javasrc2cpg.Config
+import io.joern.javasrc2cpg.util.{CachingReflectionTypeSolver, SourceRootFinder}
 import io.joern.x2cpg.datastructures.Global
 import io.joern.x2cpg.utils.dependency.DependencyResolver
 import org.slf4j.LoggerFactory
@@ -22,7 +23,7 @@ import scala.jdk.OptionConverters.RichOptional
 import scala.jdk.CollectionConverters._
 import scala.util.{Success, Try}
 
-class AstCreationPass(codeDir: String, filenames: List[String], inferenceJarPaths: Set[String], cpg: Cpg)
+class AstCreationPass(codeDir: String, filenames: List[String], config: Config, cpg: Cpg)
     extends ConcurrentWriterCpgPass[String](cpg) {
 
   val global: Global              = new Global()
@@ -55,7 +56,7 @@ class AstCreationPass(codeDir: String, filenames: List[String], inferenceJarPath
   }
 
   private def jarsList: List[String] = {
-    inferenceJarPaths.flatMap(recursiveJarsFromPath).toList
+    config.inferenceJarPaths.flatMap(recursiveJarsFromPath).toList
   }
 
   private def recursiveJarsFromPath(path: String): List[String] = {
@@ -79,7 +80,7 @@ class AstCreationPass(codeDir: String, filenames: List[String], inferenceJarPath
     SourceRootFinder.getSourceRoots(codeDir)
 
     val combinedTypeSolver   = new CombinedTypeSolver()
-    val reflectionTypeSolver = new ReflectionTypeSolver()
+    val reflectionTypeSolver = new CachingReflectionTypeSolver()
     combinedTypeSolver.add(reflectionTypeSolver)
 
     // Add solvers for all detected sources roots
@@ -88,12 +89,17 @@ class AstCreationPass(codeDir: String, filenames: List[String], inferenceJarPath
       combinedTypeSolver.add(javaParserTypeSolver)
     }
 
-    val resolvedDeps = DependencyResolver.getDependencies(Paths.get(codeDir)) match {
-      case Some(deps) => deps
-      case None =>
-        logger.warn(s"Could not fetch dependencies for project at path $codeDir")
-        Seq()
+    val resolvedDeps = if (config.skipDependencyDownload) {
+      Seq()
+    } else {
+      DependencyResolver.getDependencies(Paths.get(codeDir)) match {
+        case Some(deps) => deps
+        case None =>
+          logger.warn(s"Could not fetch dependencies for project at path $codeDir")
+          Seq()
+      }
     }
+
     // Add solvers for inference jars
     (jarsList ++ resolvedDeps)
       .flatMap { path =>

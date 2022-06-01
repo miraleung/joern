@@ -10,6 +10,7 @@ libraryDependencies ++= Seq(
   "org.apache.logging.log4j" % "log4j-slf4j-impl"              % Versions.log4j     % Runtime,
   //"com.github.javaparser"    % "javaparser-symbol-solver-core" % "3.24.3-SNAPSHOT",
   "com.github.javaparser"    % "javaparser-symbol-solver-core" % "3.24.2",
+  "org.gradle"               % "gradle-tooling-api" % Versions.gradleTooling % Optional,
   "org.scalatest"           %% "scalatest"                     % Versions.scalatest % Test
 )
 
