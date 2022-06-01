@@ -53,13 +53,18 @@ object CompilerAPI {
       } else {
         val resourceStream = getClass.getClassLoader.getResourceAsStream(path.path)
         if (resourceStream != null) {
-          val tempFile = File.createTempFile("kotlin2cpgDependencies", "", new File("./"))
+          val tempFile = File.createTempFile("kotlin2cpgDependencies", "")
           tempFile.deleteOnExit()
           val outStream = new FileOutputStream(tempFile)
+          val buffer    = new Array[Byte](4096)
 
-          val bytes =
-            LazyList.continually(resourceStream.read).takeWhile(_ != -1).map(_.toByte).toArray
-          outStream.write(bytes)
+          while (resourceStream.available > 0) {
+            val readBytes = resourceStream.read(buffer)
+            outStream.write(buffer, 0, readBytes)
+          }
+          outStream.flush()
+          outStream.close()
+
           config.add(CLIConfigurationKeys.CONTENT_ROOTS, new JvmClasspathRoot(tempFile))
           logger.debug("Added dependency from resources `" + path.path + "`.")
         } else {
