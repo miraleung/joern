@@ -260,7 +260,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
 
       scopeStack.pushNewScope(namespaceScopeNode)
       addImportsToScope(compilationUnit)
-
       val typeDeclAsts = withOrder(compilationUnit.getTypes) { (typ, order) =>
         astForTypeDecl(typ, order, astParentType = "NAMESPACE_BLOCK", astParentFullName = namespaceBlockFullName)
       }
@@ -575,6 +574,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       val decl             = typ.asClassOrInterfaceDeclaration()
       val extendedTypes    = decl.getExtendedTypes.asScala
       val implementedTypes = decl.getImplementedTypes.asScala
+
       // For some reason, `typ.resolve().isInterface` returns `false` for interfaces,
       // so they now extend `Object` as well since checking for interfaces becomes
       // rather difficult.
@@ -986,7 +986,6 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
   }
 
   private def astForMethod(methodDeclaration: MethodDeclaration): Ast = {
-
     scopeStack.pushNewScope(NewMethod())
 
     val typeParamMap = getTypeParameterMap(methodDeclaration.getTypeParameters.asScala)
@@ -2016,6 +2015,9 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
               // Instead we should take the using classes type which is either the same or a
               // sub class of the declaring class.
               typeInfoCalc.fullName(fieldDecl.declaringType())
+            case anotherFieldDecl: ResolvedFieldDeclaration =>
+              // This is created in JavaParserClassDeclaration.
+              typeInfoCalc.fullName(anotherFieldDecl)
           }
 
         val identifier = NewIdentifier()
@@ -2503,6 +2505,9 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     closureBindings: Seq[ClosureBindingInfo],
     refEdgePairs: Seq[RefEdgePair]
   ): Ast = {
+
+    scopeStack.pushNewScope(NewMethod())
+
     val signature    = lambdaSignature(expr.getParameters.asScala.toList)
     val lineNumber   = line(expr)
     val columnNumber = column(expr)
@@ -2542,6 +2547,8 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     val lambdaMethodAstWithRefEdges = refEdgePairs.foldLeft(lambdaMethodAst)((acc, edgePair) => {
       acc.withRefEdge(edgePair.from, edgePair.to)
     })
+
+    scopeStack.popScope()
 
     lambdaMethodAstWithRefEdges
   }
