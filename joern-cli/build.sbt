@@ -2,6 +2,19 @@ name := "joern-cli"
 
 dependsOn(Projects.console, Projects.console % "test->test", Projects.c2cpg, Projects.dataflowengineoss, Projects.x2cpg)
 
+// Prevent scala-xml binary-incompatible compile-time errors. Sample error:
+/*
+(joerncli / update) found version conflict(s) in library dependencies; some are suspected to be binary incompatible:
+
+	* org.scala-lang.modules:scala-xml_2.13:2.1.0 (early-semver) is selected over {2.0.1, 1.3.0}
+	    +- io.shiftleft:overflowdb-formats_2.13:1.136         (depends on 2.1.0)
+	    +- net.liftweb:lift-json_2.13:3.5.0                   (depends on 1.3.0)
+	    +- com.lihaoyi:ammonite-interp_2.13.8:2.5.4           (depends on 2.0.1)
+	    +- com.lihaoyi:ammonite-compiler_2.13.8:2.5.4         (depends on 2.0.1)
+*/
+
+ThisBuild / evictionErrorLevel := Level.Warn
+
 libraryDependencies ++= Seq(
   "io.shiftleft"            %% "codepropertygraph" % Versions.cpg,
   "com.lihaoyi"             %% "requests"          % "0.7.0",
@@ -10,7 +23,8 @@ libraryDependencies ++= Seq(
   "io.circe"                %% "circe-generic"     % "0.14.2",
   "org.reflections"          % "reflections"       % "0.10.2",
   "org.apache.logging.log4j" % "log4j-slf4j-impl"  % Versions.log4j     % Runtime,
-  "org.scalatest"           %% "scalatest"         % Versions.scalatest % Test
+  "org.scalatest"           %% "scalatest"         % Versions.scalatest % Test,
+  "net.liftweb"             %% "lift-json"         % "3.5+",
 )
 
 enablePlugins(UniversalPlugin)
