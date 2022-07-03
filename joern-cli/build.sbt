@@ -5,7 +5,6 @@ dependsOn(Projects.console, Projects.console % "test->test", Projects.c2cpg, Pro
 // Prevent scala-xml binary-incompatible compile-time errors. Sample error:
 /*
 (joerncli / update) found version conflict(s) in library dependencies; some are suspected to be binary incompatible:
-
 	* org.scala-lang.modules:scala-xml_2.13:2.1.0 (early-semver) is selected over {2.0.1, 1.3.0}
 	    +- io.shiftleft:overflowdb-formats_2.13:1.136         (depends on 2.1.0)
 	    +- net.liftweb:lift-json_2.13:3.5.0                   (depends on 1.3.0)
