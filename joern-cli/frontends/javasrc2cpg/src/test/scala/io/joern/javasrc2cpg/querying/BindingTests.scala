@@ -56,18 +56,21 @@ class BindingTests extends JavaSrcCode2CpgFixture {
         .map(binding => (binding.name, binding.signature, binding.methodFullName))
         .l
       methodBinding should contain theSameElementsAs List(
-        ("accept", "void(java.lang.Object)", "SomeConsumer.accept:void(java.lang.Object)")
+        ("accept", "void(java.lang.Number)", "SomeConsumer.accept:void(java.lang.Number)"),
+        ("accept", "void(java.lang.Object)", "SomeConsumer.accept:void(java.lang.Number)")
       )
     }
 
-    "have one binding for OtherConsumer" in {
+    "have three bindings for OtherConsumer" in {
       val typeDecl = cpg.typeDecl(".*OtherConsumer.*").head
       val methodBinding = typeDecl.methodBinding
         .name("accept")
         .map(binding => (binding.name, binding.signature, binding.methodFullName))
         .l
       methodBinding should contain theSameElementsAs List(
-        ("accept", "void(java.lang.Object)", "OtherConsumer.accept:void(java.lang.Object)")
+        ("accept", "void(java.lang.Integer)", "OtherConsumer.accept:void(java.lang.Integer)"),
+        ("accept", "void(java.lang.Number)", "OtherConsumer.accept:void(java.lang.Integer)"),
+        ("accept", "void(java.lang.Object)", "OtherConsumer.accept:void(java.lang.Integer)")
       )
     }
   }

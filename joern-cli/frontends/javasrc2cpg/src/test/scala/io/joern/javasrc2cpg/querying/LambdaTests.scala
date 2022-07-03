@@ -451,8 +451,8 @@ class LambdaTests extends JavaSrcCode2CpgFixture {
     "resolve calls in the body of the lambda" in {
       cpg.method.name(".*lambda.*").call.name("sink").l match {
         case sink :: Nil =>
-          sink.methodFullName shouldBe "Foo.sink:void(java.lang.Float,java.lang.String)"
-          sink.signature shouldBe "void(java.lang.Float,java.lang.String)"
+          sink.methodFullName shouldBe "Foo.sink:void(java.lang.Float,java.lang.Float)"
+          sink.signature shouldBe "void(java.lang.Float,java.lang.Float)"
 
         case result => fail(s"Expected single call to sink but got $result")
       }

@@ -1160,7 +1160,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     // case _: YieldStmt                  => Seq()
     val asts = statement match {
       case x: ExplicitConstructorInvocationStmt =>
-        Seq(astForExplicitConstructorInvocation(x, stmtOrder))
+        Seq(astForExplicitConstructorInvocation(x))
       case x: AssertStmt       => Seq(astForAssertStatement(x))
       case x: BlockStmt        => Seq(astForBlockStatement(x))
       case x: BreakStmt        => Seq(astForBreakStatement(x))

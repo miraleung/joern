@@ -133,7 +133,7 @@ class NewCallTests extends JavaSrcCode2CpgFixture {
         |""".stripMargin)
 
     "have correct methodFullName" in {
-      cpg.call("foo").methodFullName.head shouldBe "Foo.foo:void(java.lang.Object)"
+      cpg.call("foo").methodFullName.head shouldBe "Foo.foo:void(java.lang.Number)"
     }
   }
 
