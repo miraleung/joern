@@ -225,8 +225,8 @@ class CfgCreationPassTest extends AnyWordSpec with Matchers {
 
     "be correct for outer program function which declares foo function object" in {
       new CfgFixture("function foo(x, y) { return; }") {
-        succOf(":program") shouldBe expected(("foo", 2, AlwaysEdge))
-        succOf("foo", NodeTypes.IDENTIFIER) shouldBe expected(("foo", 3, AlwaysEdge))
+        succOf(":program") shouldBe expected(("foo", 1, AlwaysEdge))
+        succOf("foo", NodeTypes.IDENTIFIER) shouldBe expected(("foo", 2, AlwaysEdge))
         succOf("foo", NodeTypes.METHOD_REF) shouldBe expected(
           ("function foo = function foo(x, y) { return; }", AlwaysEdge)
         )
@@ -336,7 +336,7 @@ class CfgCreationPassTest extends AnyWordSpec with Matchers {
         succOf(":program") shouldBe expected(("x", AlwaysEdge))
         succOf("x") shouldBe expected(("y", TrueEdge), ("c", FalseEdge))
         succOf("y") shouldBe expected(("break;", TrueEdge), ("a", FalseEdge))
-        succOf("break;") shouldBe expected(("a", AlwaysEdge), ("c", AlwaysEdge))
+        succOf("break;", 0) shouldBe expected(("a", AlwaysEdge))
         succOf("a") shouldBe expected(("break;", 1, AlwaysEdge))
         succOf("break;", 1) shouldBe expected(("c", AlwaysEdge))
         succOf("c") shouldBe expected(("RET", AlwaysEdge))
@@ -358,8 +358,8 @@ class CfgCreationPassTest extends AnyWordSpec with Matchers {
         succOf(":program") shouldBe expected(("x", AlwaysEdge))
         succOf("x") shouldBe expected(("y", TrueEdge), ("n", FalseEdge))
         succOf("y") shouldBe expected(("break;", TrueEdge), ("z", FalseEdge))
-        succOf("break;") shouldBe expected(("n", AlwaysEdge))
-        succOf("break;", 1) shouldBe expected(("x", AlwaysEdge), ("n", AlwaysEdge))
+        succOf("break;", 0) shouldBe expected(("n", AlwaysEdge))
+        succOf("break;", 1) shouldBe expected(("x", AlwaysEdge))
         succOf("z") shouldBe expected(("break;", 1, TrueEdge), ("x", FalseEdge))
         succOf("n") shouldBe expected(("RET", AlwaysEdge))
       }
@@ -414,7 +414,7 @@ class CfgCreationPassTest extends AnyWordSpec with Matchers {
         succOf(":program") shouldBe expected(("x", AlwaysEdge))
         succOf("x") shouldBe expected(("y", TrueEdge), ("c", FalseEdge))
         succOf("y") shouldBe expected(("break;", TrueEdge), ("z", FalseEdge))
-        succOf("break;") shouldBe expected(("x", 1, AlwaysEdge), ("z", AlwaysEdge), ("c", AlwaysEdge))
+        succOf("break;") shouldBe expected(("z", AlwaysEdge))
         succOf("z") shouldBe expected(("x", 1, AlwaysEdge))
         succOf("x", 1) shouldBe expected(("1", AlwaysEdge))
         succOf("1") shouldBe expected(("x < 1", AlwaysEdge))
@@ -427,7 +427,7 @@ class CfgCreationPassTest extends AnyWordSpec with Matchers {
       new CfgFixture("while(x) { do { break; } while (y) } o;") {
         succOf(":program") shouldBe expected(("x", AlwaysEdge))
         succOf("x") shouldBe expected(("break;", TrueEdge), ("o", FalseEdge))
-        succOf("break;") shouldBe expected(("x", AlwaysEdge), ("o", AlwaysEdge))
+        succOf("break;") shouldBe expected(("x", AlwaysEdge))
         succOf("o") shouldBe expected(("RET", AlwaysEdge))
       }
     }
@@ -437,7 +437,7 @@ class CfgCreationPassTest extends AnyWordSpec with Matchers {
         succOf(":program") shouldBe expected(("y", AlwaysEdge))
         succOf("y") shouldBe expected(("z", TrueEdge), ("RET", FalseEdge))
         succOf("z") shouldBe expected(("break;", TrueEdge), ("y", FalseEdge))
-        succOf("break;") shouldBe expected(("y", AlwaysEdge), ("RET", AlwaysEdge))
+        succOf("break;") shouldBe expected(("y", AlwaysEdge))
       }
     }
 

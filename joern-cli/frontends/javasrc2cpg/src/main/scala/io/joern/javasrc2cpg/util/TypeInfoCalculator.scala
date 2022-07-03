@@ -95,7 +95,11 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         val substitutedTypeOpt = Try(typeParamValues.getValue(typeParamDecl)).toOption
         // This is the way the library tells us there is no substitution happened.
         // Also, prevent infinite looping with the equals check.
-        if (substitutedTypeOpt.isDefined && !typ.equals(substitutedTypeOpt.get)) {
+        if (
+          !substitutedTypeOpt.isDefined || !typ.equals(substitutedTypeOpt.get) ||
+          (substitutedTypeOpt.get.isTypeVariable &&
+            substitutedTypeOpt.get.asTypeParameter() == typeParamDecl)
+        ) {
           val extendsBoundOption = Try(typeParamDecl.getBounds.asScala.find(_.isExtends)).toOption
           val isTypeVarOpt       = Try(substitutedTypeOpt.get.isTypeVariable).toOption
           if (
@@ -236,17 +240,25 @@ object TypeInfoCalculator {
   }
 
   object TypeConstants {
-    val Byte: String    = "byte"
-    val Short: String   = "short"
-    val Int: String     = "int"
-    val Long: String    = "long"
-    val Float: String   = "float"
-    val Double: String  = "double"
-    val Char: String    = "char"
-    val Boolean: String = "boolean"
-    val Object: String  = "java.lang.Object"
-    val Class: String   = "java.lang.Class"
+    val Byte: String                = "byte"
+    val Short: String               = "short"
+    val Int: String                 = "int"
+    val Long: String                = "long"
+    val Float: String               = "float"
+    val Double: String              = "double"
+    val Char: String                = "char"
+    val Boolean: String             = "boolean"
+    val Object: String              = "java.lang.Object"
+    val Class: String               = "java.lang.Class"
+    val Iterator: String            = "java.util.Iterator"
+    val Void: String                = "void"
+    val UnresolvedType: String      = "<unresolvedType>"
+    val UnresolvedSignature: String = "<unresolvedSignature>"
+    val UnresolvedReceiver: String  = "<unresolvedReceiverType>"
   }
+
+  val unresolvedConstants =
+    List(TypeConstants.UnresolvedType, TypeConstants.UnresolvedSignature, TypeConstants.UnresolvedReceiver)
 
   object TypeNameConstants {
     val Object: String = "Object"
@@ -271,5 +283,9 @@ object TypeInfoCalculator {
     "java.lang.Boolean"
   )
 
-  val UnresolvedTypeDefault = "ANY"
+  def apply(global: Global, symbolResolver: SymbolResolver): TypeInfoCalculator = {
+    val typeInfoCalculator = new TypeInfoCalculator(global, symbolResolver)
+    unresolvedConstants.foreach(typeInfoCalculator.registerType)
+    typeInfoCalculator
+  }
 }
