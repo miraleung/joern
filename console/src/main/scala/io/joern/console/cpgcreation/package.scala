@@ -23,15 +23,15 @@ package object cpgcreation {
       case Languages.GOLANG             => Some(GoCpgGenerator(config.withArgs(args), rootPath))
       // Use JavaSrcCpgGenerator to get comments.
       // case Languages.JAVA            => Some(JavaCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.JAVA               => Some(JavaSrcCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.JAVASRC            => Some(JavaSrcCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.JAVASCRIPT         => Some(JsCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.JSSRC              => Some(JsSrcCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.PYTHONSRC          => Some(PythonSrcCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.PHP                => Some(PhpCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.GHIDRA             => Some(GhidraCpgGenerator(config.withArgs(args), rootPath))
-      case Languages.KOTLIN             => Some(KotlinCpgGenerator(config.withArgs(args), rootPath))
-      case _                            => None
+      case Languages.JAVA       => Some(JavaSrcCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.JAVASRC    => Some(JavaSrcCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.JAVASCRIPT => Some(JsCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.JSSRC      => Some(JsSrcCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.PYTHONSRC  => Some(PythonSrcCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.PHP        => Some(PhpCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.GHIDRA     => Some(GhidraCpgGenerator(config.withArgs(args), rootPath))
+      case Languages.KOTLIN     => Some(KotlinCpgGenerator(config.withArgs(args), rootPath))
+      case _                    => None
     }
   }
 
