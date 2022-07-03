@@ -23,7 +23,7 @@ libraryDependencies ++= Seq(
   "org.reflections"          % "reflections"       % "0.10.2",
   "org.apache.logging.log4j" % "log4j-slf4j-impl"  % Versions.log4j     % Runtime,
   "org.scalatest"           %% "scalatest"         % Versions.scalatest % Test,
-  "net.liftweb"             %% "lift-json"         % "3.5+"
+  "net.liftweb"             %% "lift-json"         % "3.5+",
 )
 
 enablePlugins(UniversalPlugin)
