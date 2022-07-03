@@ -421,6 +421,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       case fieldDeclaration: FieldDeclaration =>
         val memberAsts = fieldDeclaration.getVariables.asScala.toList.map { variable =>
           astForFieldVariable(variable, fieldDeclaration)
+        }
 
         val commentAndFieldAsts = if (fieldDeclaration.getComment.isPresent) {
           astForComment(fieldDeclaration.getComment.get()) +: memberAsts
@@ -1177,7 +1178,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
       case x: ThrowStmt        => Seq(astForThrow(x))
       case x: TryStmt          => Seq(astForTry(x))
       case x: WhileStmt        => Seq(astForWhile(x))
-      case x                   =>
+      case x =>
         logger.warn(s"Attempting to generate AST for unknown statement $x")
         Seq(unknownAst(x))
     }

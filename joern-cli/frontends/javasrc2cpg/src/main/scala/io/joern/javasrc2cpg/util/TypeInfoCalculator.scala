@@ -95,9 +95,11 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         val substitutedTypeOpt = Try(typeParamValues.getValue(typeParamDecl)).toOption
         // This is the way the library tells us there is no substitution happened.
         // Also, prevent infinite looping with the equals check.
-        if (!substitutedTypeOpt.isDefined || !typ.equals(substitutedTypeOpt.get) ||
+        if (
+          !substitutedTypeOpt.isDefined || !typ.equals(substitutedTypeOpt.get) ||
           (substitutedTypeOpt.get.isTypeVariable &&
-            substitutedTypeOpt.get.asTypeParameter() == typeParamDecl)) {
+            substitutedTypeOpt.get.asTypeParameter() == typeParamDecl)
+        ) {
           val extendsBoundOption = Try(typeParamDecl.getBounds.asScala.find(_.isExtends)).toOption
           val isTypeVarOpt       = Try(substitutedTypeOpt.get.isTypeVariable).toOption
           if (
