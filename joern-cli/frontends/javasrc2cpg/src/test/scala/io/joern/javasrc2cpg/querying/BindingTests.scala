@@ -49,28 +49,25 @@ class BindingTests extends JavaSrcCode2CpgFixture {
       "OtherConsumer.java"
     )
 
-    "have two bindings for SomeConsumer" in {
+    "have one binding for SomeConsumer" in {
       val typeDecl = cpg.typeDecl(".*SomeConsumer.*").head
       val methodBinding = typeDecl.methodBinding
         .name("accept")
         .map(binding => (binding.name, binding.signature, binding.methodFullName))
         .l
       methodBinding should contain theSameElementsAs List(
-        ("accept", "void(java.lang.Number)", "SomeConsumer.accept:void(java.lang.Number)"),
-        ("accept", "void(java.lang.Object)", "SomeConsumer.accept:void(java.lang.Number)")
+        ("accept", "void(java.lang.Object)", "SomeConsumer.accept:void(java.lang.Object)")
       )
     }
 
-    "have three bindings for OtherConsumer" in {
+    "have one binding for OtherConsumer" in {
       val typeDecl = cpg.typeDecl(".*OtherConsumer.*").head
       val methodBinding = typeDecl.methodBinding
         .name("accept")
         .map(binding => (binding.name, binding.signature, binding.methodFullName))
         .l
       methodBinding should contain theSameElementsAs List(
-        ("accept", "void(java.lang.Integer)", "OtherConsumer.accept:void(java.lang.Integer)"),
-        ("accept", "void(java.lang.Number)", "OtherConsumer.accept:void(java.lang.Integer)"),
-        ("accept", "void(java.lang.Object)", "OtherConsumer.accept:void(java.lang.Integer)")
+        ("accept", "void(java.lang.Object)", "OtherConsumer.accept:void(java.lang.Object)")
       )
     }
   }
