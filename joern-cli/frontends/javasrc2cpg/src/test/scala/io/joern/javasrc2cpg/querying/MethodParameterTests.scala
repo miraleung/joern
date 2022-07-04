@@ -69,7 +69,7 @@ class MethodParameterTests2 extends JavaSrcCode2CpgFixture {
           |""".stripMargin)
       "have correct type for parameter p1" in {
         val List(param) = cpg.method.name("foo").parameter.name("p1").l
-        param.typeFullName shouldBe "java.lang.Number"
+        param.typeFullName shouldBe "java.lang.Object"
       }
     }
 
@@ -83,7 +83,7 @@ class MethodParameterTests2 extends JavaSrcCode2CpgFixture {
           |""".stripMargin)
       "have correct type for parameter p1" in {
         val List(param) = cpg.method.name("foo").parameter.name("p1").l
-        param.typeFullName shouldBe "java.lang.Number"
+        param.typeFullName shouldBe "java.lang.Object"
       }
     }
 
@@ -113,7 +113,7 @@ class MethodParameterTests2 extends JavaSrcCode2CpgFixture {
 
       "have correct type for parameter p1" in {
         val List(param) = cpg.method.name("foo").parameter.name("p1").l
-        param.typeFullName shouldBe "java.lang.Number"
+        param.typeFullName shouldBe "java.lang.Object"
       }
     }
 
@@ -128,7 +128,7 @@ class MethodParameterTests2 extends JavaSrcCode2CpgFixture {
 
       "have correct type for parameter p1" in {
         val List(param) = cpg.method.name("foo").parameter.name("p1").l
-        param.typeFullName shouldBe "java.lang.Number"
+        param.typeFullName shouldBe "java.lang.Object"
       }
     }
   }
