@@ -124,9 +124,9 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         // The individual elements of the type union cannot be accessed in ResolvedUnionType.
         // For whatever reason there is no accessor and the field is private.
         // So for now we settle with the ancestor type. Maybe we use reflection later.
-        val ancestorOption = unionType.getCommonAncestor
-        if (ancestorOption.isPresent) {
-          nameOrFullName(ancestorOption.get, typeParamValues, fullyQualified)
+        val ancestorOptionOpt = Try(unionType.getCommonAncestor).toOption
+        if (ancestorOptionOpt.isDefined && ancestorOptionOpt.get.isPresent) {
+          nameOrFullName(ancestorOptionOpt.get.get, typeParamValues, fullyQualified)
         } else {
           objectType(fullyQualified)
         }
