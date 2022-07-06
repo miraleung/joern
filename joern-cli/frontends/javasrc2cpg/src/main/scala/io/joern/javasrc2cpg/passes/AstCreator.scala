@@ -2722,11 +2722,16 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     expectedTypeParamTypes: ResolvedTypeParametersMap
   ): String = {
     val maybeBoundMethodReturnType = maybeBoundMethod.map { boundMethod =>
-      boundMethod.getReturnType match {
-        case returnType: ResolvedTypeVariable =>
-          expectedTypeParamTypes.getValue(returnType.asTypeParameter)
+      val retTypeOpt = Try(boundMethod.getReturnType).toOption
+      if (!retTypeOpt.isDefined) {
+        maybeResolvedLambdaType.get
+      } else {
+        retTypeOpt.get match {
+          case returnType: ResolvedTypeVariable =>
+            expectedTypeParamTypes.getValue(returnType.asTypeParameter)
 
-        case returnType => returnType
+          case returnType => returnType
+        }
       }
     }
 
