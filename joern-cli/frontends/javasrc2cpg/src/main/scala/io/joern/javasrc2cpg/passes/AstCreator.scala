@@ -2666,21 +2666,29 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
     expectedTypeParamTypes: ResolvedTypeParametersMap
   ): Seq[Ast] = {
     val lambdaParameters = expr.getParameters.asScala.toList
-    val paramTypesList = maybeBoundMethod match {
+    // Workaround to handle potential failures in x.getType for resolvedParameters.
+    val resolvedParameters = maybeBoundMethod match {
       case Some(resolvedMethod) =>
-        val resolvedParameters = (0 until resolvedMethod.getNumberOfParams).map(resolvedMethod.getParam)
-
-        // Substitute generic typeParam with the expected type if it can be found; leave unchanged otherwise.
-        val paramsWithSubstitutedTypes = resolvedParameters.map(_.getType).map {
+        (0 until resolvedMethod.getNumberOfParams).map(resolvedMethod.getParam)
+      case None => List()
+    }
+    val resolvedParamsAllHaveTypes = resolvedParameters.foldLeft(true)((b, r) => b && Try(r.getType).toOption.isDefined)
+    val paramsWithSubstitutedTypes =
+      if (maybeBoundMethod.isDefined && resolvedParamsAllHaveTypes) {
+        resolvedParameters.map(_.getType).map {
           case resolvedType: ResolvedTypeVariable =>
             expectedTypeParamTypes.getValue(resolvedType.asTypeParameter)
 
           case resolvedType => resolvedType
         }
-
+      } else {
+        List()
+      }
+    val paramTypesList =
+      if (maybeBoundMethod.isDefined && resolvedParamsAllHaveTypes && !paramsWithSubstitutedTypes.isEmpty) {
+        // Substitute generic typeParam with the expected type if it can be found; leave unchanged otherwise.
         paramsWithSubstitutedTypes.map(typeInfoCalc.fullName)
-
-      case None =>
+      } else {
         // Unless types are explicitly specified in the lambda definition,
         // this will yield the erased types which is why the actual lambda
         // expression parameters are only used as a fallback.
@@ -2688,7 +2696,7 @@ class AstCreator(filename: String, javaParserAst: CompilationUnit, global: Globa
           .map(_.getType)
           .map(typeInfoCalc.fullName)
           .map(_.getOrElse(TypeConstants.UnresolvedType))
-    }
+      }
 
     if (paramTypesList.size != lambdaParameters.size) {
       logger.error(s"Found different number lambda params and param types for $expr. Some parameters will be missing.")
