@@ -93,7 +93,10 @@ class DynamicCallLinker(cpg: Cpg) extends SimpleCpgPass(cpg) {
         val totalSubclasses: mutable.LinkedHashSet[String] = if (directSubclasses.isEmpty) {
           directSubclasses ++ mutable.LinkedHashSet(typDeclFullName)
         } else {
-          directSubclasses.flatMap(t => allSubclasses(t)) ++ mutable.LinkedHashSet(typDeclFullName)
+          directSubclasses
+            // Prevent infinite loops.
+            .filter(t => !t.equals(typDeclFullName))
+            .flatMap(t => allSubclasses(t)) ++ mutable.LinkedHashSet(typDeclFullName)
         }
         subclassCache.put(typDeclFullName, totalSubclasses)
         totalSubclasses
