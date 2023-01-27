@@ -32,6 +32,8 @@ class AstCreationPass(codeDir: String, filenames: List[String], config: Config, 
   override def generateParts(): Array[String] = filenames.toArray
 
   override def runOnPart(diffGraph: DiffGraphBuilder, filename: String): Unit = {
+    logger.warn(s"Parsing file $filename")
+
     lazy val parserConfig = new ParserConfiguration().setSymbolResolver(symbolResolver)
     lazy val parser       = new JavaParser(parserConfig)
     lazy val parseResult  = parser.parse(new java.io.File(filename))
@@ -39,18 +41,23 @@ class AstCreationPass(codeDir: String, filenames: List[String], config: Config, 
     parseResult.getProblems.asScala.toList match {
       case Nil => // Just carry on as usual
       case problems =>
-        logger.warn(s"Encountered problems while parsing file $filename:")
+        logger.warn(s"ERRORS: Encountered problems parsing $filename:")
         problems.foreach { problem =>
           logger.warn(s"- ${problem.getMessage}")
         }
     }
 
-    parseResult.getResult.toScala match {
-      case Some(result) if result.getParsed == Parsedness.PARSED =>
-        diffGraph.absorb(new AstCreator(filename, result, global, symbolResolver).createAst())
-      case _ =>
-        logger.warn("Failed to parse file " + filename)
-        Iterator()
+    if (parseResult.isSuccessful && parseResult.getProblems.isEmpty) {
+      parseResult.getResult.toScala match {
+        case Some(result) if result.getParsed == Parsedness.PARSED =>
+          diffGraph.absorb(new AstCreator(filename, result, global, symbolResolver).createAst())
+        case _ =>
+          logger.warn("Failed to parse file " + filename)
+          Iterator()
+      }
+      logger.warn(s"\t\t FINISHED file $filename")
+    } else {
+      logger.warn(s"\t\t !!! FAILED file $filename, SKIPPING")
     }
   }
 
