@@ -95,11 +95,7 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         val substitutedTypeOpt = Try(typeParamValues.getValue(typeParamDecl)).toOption
         // This is the way the library tells us there is no substitution happened.
         // Also, prevent infinite looping with the equals check.
-        if (
-          !substitutedTypeOpt.isDefined || !typ.equals(substitutedTypeOpt.get) ||
-          (substitutedTypeOpt.get.isTypeVariable &&
-            substitutedTypeOpt.get.asTypeParameter() == typeParamDecl)
-        ) {
+        if (substitutedTypeOpt.isDefined && !typ.equals(substitutedTypeOpt.get)) {
           val extendsBoundOption = Try(typeParamDecl.getBounds.asScala.find(_.isExtends)).toOption
           val isTypeVarOpt       = Try(substitutedTypeOpt.get.isTypeVariable).toOption
           if (
@@ -128,9 +124,9 @@ class TypeInfoCalculator(global: Global, symbolResolver: SymbolResolver) {
         // The individual elements of the type union cannot be accessed in ResolvedUnionType.
         // For whatever reason there is no accessor and the field is private.
         // So for now we settle with the ancestor type. Maybe we use reflection later.
-        val ancestorOption = unionType.getCommonAncestor
-        if (ancestorOption.isPresent) {
-          nameOrFullName(ancestorOption.get, typeParamValues, fullyQualified)
+        val ancestorOptionOpt = Try(unionType.getCommonAncestor).toOption
+        if (ancestorOptionOpt.isDefined && ancestorOptionOpt.get.isPresent) {
+          nameOrFullName(ancestorOptionOpt.get.get, typeParamValues, fullyQualified)
         } else {
           objectType(fullyQualified)
         }
