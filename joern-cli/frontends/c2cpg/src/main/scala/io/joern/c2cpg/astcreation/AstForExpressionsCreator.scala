@@ -1,6 +1,6 @@
 package io.joern.c2cpg.astcreation
 
-import io.shiftleft.codepropertygraph.generated.nodes.{NewBlock, NewCall, NewIdentifier, NewMethodRef}
+import io.shiftleft.codepropertygraph.generated.nodes.{NewCall, NewIdentifier, NewMethodRef}
 import io.shiftleft.codepropertygraph.generated.{DispatchTypes, Operators}
 import io.joern.x2cpg.Ast
 import org.eclipse.cdt.core.dom.ast._
@@ -8,9 +8,7 @@ import org.eclipse.cdt.core.dom.ast.cpp._
 import org.eclipse.cdt.core.dom.ast.gnu.IGNUASTCompoundStatementExpression
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTQualifiedName
 
-trait AstForExpressionsCreator {
-
-  this: AstCreator =>
+trait AstForExpressionsCreator { this: AstCreator =>
 
   private def astForBinaryExpression(bin: IASTBinaryExpression): Ast = {
     val op = bin.getOperator match {
@@ -58,11 +56,10 @@ trait AstForExpressionsCreator {
   }
 
   private def astForExpressionList(exprList: IASTExpressionList): Ast = {
-    val b = NewBlock()
-      .typeFullName(registerType(Defines.voidTypeName))
-      .lineNumber(line(exprList))
-      .columnNumber(column(exprList))
-    Ast(b).withChildren(exprList.getExpressions.toIndexedSeq.map(astForExpression))
+    val callNode =
+      newCallNode(exprList, "<operator>.expressionList", "<operator>.expressionList", DispatchTypes.STATIC_DISPATCH)
+    val childAsts = exprList.getExpressions.map(nullSafeAst)
+    callAst(callNode, childAsts.toIndexedSeq)
   }
 
   private def astForCallExpression(call: IASTFunctionCallExpression): Ast = {
@@ -88,6 +85,13 @@ trait AstForExpressionsCreator {
         (DispatchTypes.STATIC_DISPATCH, rec.root.get.asInstanceOf[NewMethodRef].methodFullName)
       case _ if rec.root.exists(_.isInstanceOf[NewIdentifier]) =>
         (DispatchTypes.STATIC_DISPATCH, rec.root.get.asInstanceOf[NewIdentifier].name)
+      case _
+          if rec.root.exists(_.isInstanceOf[NewCall]) && call.getFunctionNameExpression
+            .isInstanceOf[IASTFieldReference] =>
+        (
+          DispatchTypes.STATIC_DISPATCH,
+          nodeSignature(call.getFunctionNameExpression.asInstanceOf[IASTFieldReference].getFieldName)
+        )
       case _ if rec.root.exists(_.isInstanceOf[NewCall]) =>
         (DispatchTypes.STATIC_DISPATCH, rec.root.get.asInstanceOf[NewCall].code)
       case reference: IASTIdExpression =>
@@ -96,7 +100,11 @@ trait AstForExpressionsCreator {
         (DispatchTypes.STATIC_DISPATCH, "")
     }
 
-    val cpgCall = newCallNode(call, name, name, dd)
+    val fullName = typeFor(call.getFunctionNameExpression) match {
+      case t if t != Defines.anyTypeName => s"$t.$name"
+      case _                             => name
+    }
+    val cpgCall = newCallNode(call, name, fullName, dd)
     val args    = call.getArguments.toList.map(a => astForNode(a))
     rec.root match {
       // Optimization: do not include the receiver if the receiver is just the function name,
@@ -107,7 +115,7 @@ trait AstForExpressionsCreator {
       case Some(r: NewIdentifier) if r.name == name =>
         callAst(cpgCall, args)
       case Some(_) =>
-        callAst(cpgCall, args, Some(rec))
+        callAst(cpgCall, args, Option(rec))
       case None =>
         callAst(cpgCall, args)
     }
@@ -115,33 +123,31 @@ trait AstForExpressionsCreator {
 
   private def astForUnaryExpression(unary: IASTUnaryExpression): Ast = {
     val operatorMethod = unary.getOperator match {
-      case IASTUnaryExpression.op_prefixIncr  => Operators.preIncrement
-      case IASTUnaryExpression.op_prefixDecr  => Operators.preDecrement
-      case IASTUnaryExpression.op_plus        => Operators.plus
-      case IASTUnaryExpression.op_minus       => Operators.minus
-      case IASTUnaryExpression.op_star        => Operators.indirection
-      case IASTUnaryExpression.op_amper       => Operators.addressOf
-      case IASTUnaryExpression.op_tilde       => Operators.not
-      case IASTUnaryExpression.op_not         => Operators.logicalNot
-      case IASTUnaryExpression.op_sizeof      => Operators.sizeOf
-      case IASTUnaryExpression.op_postFixIncr => Operators.postIncrement
-      case IASTUnaryExpression.op_postFixDecr => Operators.postDecrement
-      case IASTUnaryExpression.op_throw       => "<operator>.throw"
-      case IASTUnaryExpression.op_typeid      => "<operator>.typeOf"
-      case _                                  => "<operator>.unknown"
+      case IASTUnaryExpression.op_prefixIncr       => Operators.preIncrement
+      case IASTUnaryExpression.op_prefixDecr       => Operators.preDecrement
+      case IASTUnaryExpression.op_plus             => Operators.plus
+      case IASTUnaryExpression.op_minus            => Operators.minus
+      case IASTUnaryExpression.op_star             => Operators.indirection
+      case IASTUnaryExpression.op_amper            => Operators.addressOf
+      case IASTUnaryExpression.op_tilde            => Operators.not
+      case IASTUnaryExpression.op_not              => Operators.logicalNot
+      case IASTUnaryExpression.op_sizeof           => Operators.sizeOf
+      case IASTUnaryExpression.op_postFixIncr      => Operators.postIncrement
+      case IASTUnaryExpression.op_postFixDecr      => Operators.postDecrement
+      case IASTUnaryExpression.op_throw            => "<operator>.throw"
+      case IASTUnaryExpression.op_typeid           => "<operator>.typeOf"
+      case IASTUnaryExpression.op_bracketedPrimary => "<operator>.bracketedPrimary"
+      case _                                       => "<operator>.unknown"
     }
 
-    if (unary.getOperator == IASTUnaryExpression.op_bracketedPrimary) {
-      astForExpression(unary.getOperand)
+    if (
+      unary.getOperator == IASTUnaryExpression.op_bracketedPrimary &&
+      !unary.getOperand.isInstanceOf[IASTExpressionList]
+    ) {
+      nullSafeAst(unary.getOperand)
     } else {
       val cpgUnary = newCallNode(unary, operatorMethod, operatorMethod, DispatchTypes.STATIC_DISPATCH)
-      val operandExpr = unary.getOperand match {
-        // special handling for operand expression in brackets - we simply ignore the brackets
-        case opExpr: IASTUnaryExpression if opExpr.getOperator == IASTUnaryExpression.op_bracketedPrimary =>
-          opExpr.getOperand
-        case opExpr => opExpr
-      }
-      val operand = nullSafeAst(operandExpr)
+      val operand  = nullSafeAst(unary.getOperand)
       callAst(cpgUnary, List(operand))
     }
   }
@@ -192,7 +198,7 @@ trait AstForExpressionsCreator {
 
     val expr    = astForExpression(castExpression.getOperand)
     val argNode = castExpression.getTypeId
-    val arg     = newUnknown(argNode)
+    val arg     = newUnknownNode(argNode)
 
     callAst(cpgCastExpression, List(Ast(arg), expr))
   }
@@ -233,7 +239,7 @@ trait AstForExpressionsCreator {
     val cpgCastExpression =
       newCallNode(typeIdInit, Operators.cast, Operators.cast, DispatchTypes.STATIC_DISPATCH)
 
-    val typeAst = newUnknown(typeIdInit.getTypeId)
+    val typeAst = newUnknownNode(typeIdInit.getTypeId)
     val expr    = astForNode(typeIdInit.getInitializer)
     callAst(cpgCastExpression, List(Ast(typeAst), expr))
   }
@@ -253,32 +259,32 @@ trait AstForExpressionsCreator {
 
   protected def astForExpression(expression: IASTExpression): Ast = {
     val r = expression match {
-      case lit: IASTLiteralExpression   => astForLiteral(lit)
-      case un: IASTUnaryExpression      => astForUnaryExpression(un)
-      case bin: IASTBinaryExpression    => astForBinaryExpression(bin)
-      case exprList: IASTExpressionList => astForExpressionList(exprList)
-      case qualId: IASTIdExpression if qualId.getName.isInstanceOf[CPPASTQualifiedName] =>
-        astForQualifiedName(qualId.getName.asInstanceOf[CPPASTQualifiedName])
-      case ident: IASTIdExpression          => astForIdentifier(ident)
-      case call: IASTFunctionCallExpression => astForCallExpression(call)
-      case typeId: IASTTypeIdExpression     => astForTypeIdExpression(typeId)
-      case fieldRef: IASTFieldReference     => astForFieldReference(fieldRef)
-      case expr: IASTConditionalExpression  => astForConditionalExpression(expr)
-      case arrayIndexExpression: IASTArraySubscriptExpression =>
-        astForArrayIndexExpression(arrayIndexExpression)
+      case lit: IASTLiteralExpression                  => astForLiteral(lit)
+      case un: IASTUnaryExpression                     => astForUnaryExpression(un)
+      case bin: IASTBinaryExpression                   => astForBinaryExpression(bin)
+      case exprList: IASTExpressionList                => astForExpressionList(exprList)
+      case idExpr: IASTIdExpression                    => astForIdExpression(idExpr)
+      case call: IASTFunctionCallExpression            => astForCallExpression(call)
+      case typeId: IASTTypeIdExpression                => astForTypeIdExpression(typeId)
+      case fieldRef: IASTFieldReference                => astForFieldReference(fieldRef)
+      case expr: IASTConditionalExpression             => astForConditionalExpression(expr)
+      case arr: IASTArraySubscriptExpression           => astForArrayIndexExpression(arr)
       case castExpression: IASTCastExpression          => astForCastExpression(castExpression)
       case newExpression: ICPPASTNewExpression         => astForNewExpression(newExpression)
       case delExpression: ICPPASTDeleteExpression      => astForDeleteExpression(delExpression)
       case typeIdInit: IASTTypeIdInitializerExpression => astForTypeIdInitExpression(typeIdInit)
       case c: ICPPASTSimpleTypeConstructorExpression   => astForConstructorExpression(c)
       case lambdaExpression: ICPPASTLambdaExpression   => astForMethodRefForLambda(lambdaExpression)
-      case compoundExpression: IGNUASTCompoundStatementExpression =>
-        astForCompoundStatementExpression(compoundExpression)
-      case packExpansionExpression: ICPPASTPackExpansionExpression =>
-        astForPackExpansionExpression(packExpansionExpression)
-      case _ => notHandledYet(expression)
+      case cExpr: IGNUASTCompoundStatementExpression   => astForCompoundStatementExpression(cExpr)
+      case pExpr: ICPPASTPackExpansionExpression       => astForPackExpansionExpression(pExpr)
+      case _                                           => notHandledYet(expression)
     }
     asChildOfMacroCall(expression, r)
+  }
+
+  private def astForIdExpression(idExpression: IASTIdExpression): Ast = idExpression.getName match {
+    case name: CPPASTQualifiedName => astForQualifiedName(name)
+    case _                         => astForIdentifier(idExpression)
   }
 
   protected def astForStaticAssert(a: ICPPASTStaticAssertDeclaration): Ast = {

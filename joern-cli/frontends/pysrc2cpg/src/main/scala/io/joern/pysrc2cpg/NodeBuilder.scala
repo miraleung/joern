@@ -1,7 +1,8 @@
 package io.joern.pysrc2cpg
 
-import io.shiftleft.codepropertygraph.generated.{EvaluationStrategies, nodes}
-import io.shiftleft.passes.DiffGraph
+import io.joern.x2cpg.Defines
+import io.joern.x2cpg.utils.NodeBuilders
+import io.shiftleft.codepropertygraph.generated.{DispatchTypes, EvaluationStrategies, nodes}
 import overflowdb.BatchedUpdate.DiffGraphBuilder
 
 class NodeBuilder(diffGraph: DiffGraphBuilder) {
@@ -16,7 +17,7 @@ class NodeBuilder(diffGraph: DiffGraphBuilder) {
       .NewCall()
       .code(code)
       .name(name)
-      .methodFullName(name)
+      .methodFullName(if (dispatchType == DispatchTypes.STATIC_DISPATCH) name else Defines.DynamicCallUnknownFallName)
       .dispatchType(dispatchType)
       .typeFullName(Constants.ANY)
       .lineNumber(lineAndColumn.line)
@@ -117,6 +118,25 @@ class NodeBuilder(diffGraph: DiffGraphBuilder) {
 
   def methodParameterNode(
     name: String,
+    index: Int,
+    isVariadic: Boolean,
+    lineAndColumn: LineAndColumn
+  ): nodes.NewMethodParameterIn = {
+    val methodParameterNode = nodes
+      .NewMethodParameterIn()
+      .name(name)
+      .code(name)
+      .index(index)
+      .evaluationStrategy(EvaluationStrategies.BY_SHARING)
+      .typeFullName(Constants.ANY)
+      .isVariadic(isVariadic)
+      .lineNumber(lineAndColumn.line)
+      .columnNumber(lineAndColumn.column)
+    addNodeToDiff(methodParameterNode)
+  }
+
+  def methodParameterNode(
+    name: String,
     isVariadic: Boolean,
     lineAndColumn: LineAndColumn
   ): nodes.NewMethodParameterIn = {
@@ -133,14 +153,9 @@ class NodeBuilder(diffGraph: DiffGraphBuilder) {
   }
 
   def methodReturnNode(dynamicTypeHintFullName: Option[String], lineAndColumn: LineAndColumn): nodes.NewMethodReturn = {
-    val methodReturnNode = nodes
-      .NewMethodReturn()
-      .code("RET")
+    val methodReturnNode = NodeBuilders
+      .methodReturnNode(Constants.ANY, dynamicTypeHintFullName, Some(lineAndColumn.line), Some(lineAndColumn.column))
       .evaluationStrategy(EvaluationStrategies.BY_SHARING)
-      .typeFullName(Constants.ANY)
-      .dynamicTypeHintFullName(dynamicTypeHintFullName.toList)
-      .lineNumber(lineAndColumn.line)
-      .columnNumber(lineAndColumn.column)
 
     addNodeToDiff(methodReturnNode)
   }

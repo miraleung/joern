@@ -2,8 +2,7 @@ name                     := "joern"
 ThisBuild / organization := "io.joern"
 ThisBuild / scalaVersion := "2.13.8"
 
-val cpgVersion    = "1.3.550"
-val js2cpgVersion = "0.2.158"
+val cpgVersion = "1.3.586"
 
 lazy val joerncli          = Projects.joerncli
 lazy val querydb           = Projects.querydb
@@ -33,11 +32,15 @@ lazy val aggregatedProjects: Seq[ProjectReference] = Seq(
   x2cpg,
   pysrc2cpg,
   php2cpg,
+  ghidra2cpg,
   jssrc2cpg,
   javasrc2cpg,
   jimple2cpg,
   kotlin2cpg
 )
+
+ThisBuild / libraryDependencies +=
+  "org.apache.logging.log4j" % "log4j-slf4j-impl" % Versions.log4j % Test
 
 ThisBuild / compile / javacOptions ++= Seq(
   "-g", // debug symbols
@@ -89,3 +92,5 @@ publish / skip := true // don't publish the root project
 lazy val root = project
   .in(file("."))
   .aggregate(aggregatedProjects: _*)
+
+ThisBuild / Test / packageBin / publishArtifact := true

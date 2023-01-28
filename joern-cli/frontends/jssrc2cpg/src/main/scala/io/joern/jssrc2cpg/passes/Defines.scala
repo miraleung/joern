@@ -1,26 +1,19 @@
 package io.joern.jssrc2cpg.passes
 
-class DefineTypes extends Enumeration {
-  type Defines = Value
+import io.shiftleft.semanticcpg.language.types.structure.NamespaceTraversal
 
-  val ANY: Tpe      = Tpe("ANY")
-  val NUMBER: Tpe   = Tpe("__ecma.Number")
-  val STRING: Tpe   = Tpe("__ecma.String")
-  val BOOLEAN: Tpe  = Tpe("__ecma.Boolean")
-  val NULL: Tpe     = Tpe("__ecma.Null")
-  val MATH: Tpe     = Tpe("__ecma.Math")
-  val SYMBOL: Tpe   = Tpe("__ecma.Symbol")
-  val CONSOLE: Tpe  = Tpe("__whatwg.console")
-  val FUNCTION: Tpe = Tpe("function")
-  val OBJECT: Tpe   = Tpe("object")
-  val ARRAY: Tpe    = Tpe("array")
+object Defines {
+  val Any: String               = "ANY"
+  val Number: String            = "__ecma.Number"
+  val String: String            = "__ecma.String"
+  val Boolean: String           = "__ecma.Boolean"
+  val Null: String              = "__ecma.Null"
+  val Math: String              = "__ecma.Math"
+  val Symbol: String            = "__ecma.Symbol"
+  val Console: String           = "__whatwg.console"
+  val Object: String            = "object"
+  val NodeModulesFolder: String = "node_modules"
+  val GlobalNamespace: String   = NamespaceTraversal.globalNamespaceName
 
-  val GLOBAL_NAMESPACE = "<global>"
-
-  class Tpe(val label: String) extends super.Val
-  private object Tpe {
-    def apply(label: String): Tpe = new Tpe(label)
-  }
+  val JsTypes: List[String] = List(Any, Number, String, Boolean, Null, Math, Symbol, Console, Object)
 }
-
-object Defines extends DefineTypes

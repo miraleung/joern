@@ -18,7 +18,7 @@ import io.shiftleft.semanticcpg.language.types.expressions.generalizations.{
 import io.shiftleft.semanticcpg.language.types.expressions.{CallTraversal => OriginalCall, _}
 import io.shiftleft.semanticcpg.language.types.propertyaccessors._
 import io.shiftleft.semanticcpg.language.types.structure.{MethodTraversal => OriginalMethod, _}
-import overflowdb.traversal._
+import overflowdb.traversal.Traversal
 import overflowdb.NodeOrDetachedNode
 
 /** Language for traversing the code property graph
@@ -80,6 +80,12 @@ package object language extends operatorextension.Implicits with LowPrioImplicit
     new AnnotationTraversal(Traversal.fromSingle(a))
   implicit def iterOnceToAnnotationTrav[A <: Annotation](a: IterableOnce[A]): AnnotationTraversal =
     new AnnotationTraversal(iterableToTraversal(a))
+
+  implicit def singleToDependencyTrav[A <: Dependency](a: A): DependencyTraversal =
+    new DependencyTraversal(Traversal.fromSingle(a))
+
+  implicit def iterToDependencyTrav[A <: Dependency](a: IterableOnce[A]): DependencyTraversal =
+    new DependencyTraversal(iterableToTraversal(a))
 
   implicit def singleToAnnotationParameterAssignTrav[A <: AnnotationParameterAssign](
     a: A
@@ -165,6 +171,12 @@ package object language extends operatorextension.Implicits with LowPrioImplicit
   implicit def graphToInterproceduralDot(cpg: Cpg): InterproceduralNodeDot =
     new InterproceduralNodeDot(cpg)
 
+  /** Warning: implicitly lifting `Node -> Traversal` opens a broad space with a lot of accidental complexity and is
+    * considered a historical accident. We only keep it around because we want to preserve `reachableBy(Node*)`, which
+    * unfortunately (due to type erasure) can't be an overload of `reachableBy(Traversal*)`.
+    *
+    * In most places you should explicitly call `Traversal.fromSingle` instead of relying on this implicit.
+    */
   implicit def toTraversal[NodeType <: StoredNode](node: NodeType): Traversal[NodeType] =
     Traversal.fromSingle(node)
 
@@ -249,7 +261,7 @@ package object language extends operatorextension.Implicits with LowPrioImplicit
     new ExpressionTraversal[A](iterableToTraversal(a))
 }
 
-trait LowPrioImplicits {
+trait LowPrioImplicits extends overflowdb.traversal.Implicits {
   implicit def singleToCfgNodeTraversal[A <: CfgNode](a: A): CfgNodeTraversal[A] =
     new CfgNodeTraversal[A](Traversal.fromSingle(a))
   implicit def iterOnceToCfgNodeTraversal[A <: CfgNode](a: IterableOnce[A]): CfgNodeTraversal[A] =

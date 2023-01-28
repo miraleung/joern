@@ -6,8 +6,8 @@ import io.shiftleft.semanticcpg.language._
 
 class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDefaultJars = true) {
 
-  "CPG for code with a simple function definition with parameters of stdlib types, but not fully specified" should {
-    lazy val cpg = code("""
+  "CPG for code with a simple function declaration with parameters of stdlib types, but not fully specified" should {
+    val cpg = code("""
         |package mypkg
         |
         |fun add1mul(x: Int, y: Int): Int {
@@ -28,33 +28,8 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
     }
   }
 
-  "CPG for code with a simple class definition" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |class Foo {
-        |  fun bar(x: Int, y: Int): Int {
-        |    return x * 2
-        |  }
-        |}
-        |""".stripMargin)
-
-    "should contain two METHOD_PARAMETER nodes with the correct type fullnames" in {
-      def params = cpg.parameter.filter(_.method.name == "bar")
-      params.name.toSet shouldBe Set("x", "y")
-
-      val List(x) = params.name("x").l
-      x.code shouldBe "x"
-      x.typeFullName shouldBe "int"
-
-      val List(y) = params.name("y").l
-      y.code shouldBe "y"
-      y.typeFullName shouldBe "int"
-    }
-  }
-
   "CPG for code with type alias of a stdlib type" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |typealias FooList = List<Int>
         |
         |fun foo() {
@@ -70,7 +45,7 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
   }
 
   "CPG for code with array access" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |fun foo(): Int {
         |  val x = listOf(1, 2, 3)
         |  return x[0]
@@ -84,7 +59,7 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
   }
 
   "CPG for code with `this` expression" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Foo {
@@ -101,8 +76,8 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
     }
   }
 
-  "CPG for code with a class definition" should {
-    lazy val cpg = code("""
+  "CPG for code with a class declaration" should {
+    val cpg = code("""
         |package mypkg
         |
         |class Foo: Object {
@@ -121,7 +96,7 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
   }
 
   "CPG for code with Java stdlib" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo(cmd: String) {
@@ -147,7 +122,7 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
   }
 
   "CPG for code using the Javalin web framework" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import io.javalin.Javalin
@@ -218,7 +193,7 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
   }
 
   "CPG for code using the http4k framework" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package com.example
         |
         |import org.http4k.core.HttpHandler
@@ -281,7 +256,7 @@ class DefaultContentRootsTests extends KotlinCode2CpgFixture(withOssDataflow = f
   }
 
   "CPG for code with addition of aliased type and its original" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |typealias MyInt = Int

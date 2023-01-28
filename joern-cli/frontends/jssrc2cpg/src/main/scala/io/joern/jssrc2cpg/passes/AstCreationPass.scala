@@ -1,10 +1,10 @@
 package io.joern.jssrc2cpg.passes
 
 import io.joern.jssrc2cpg.astcreation.AstCreator
-import io.joern.jssrc2cpg.parser.BabelJsonParser
 import io.joern.jssrc2cpg.utils.Report
 import io.joern.jssrc2cpg.utils.TimeUtils
 import io.joern.jssrc2cpg.Config
+import io.joern.jssrc2cpg.parser.BabelJsonParser
 import io.joern.jssrc2cpg.utils.AstGenRunner.AstGenRunnerResult
 import io.shiftleft.codepropertygraph.Cpg
 import io.shiftleft.passes.ConcurrentWriterCpgPass
@@ -29,7 +29,7 @@ class AstCreationPass(cpg: Cpg, astGenRunnerResult: AstGenRunnerResult, config: 
   override def generateParts(): Array[(String, String)] = astGenRunnerResult.parsedFiles.toArray
 
   def allUsedTypes(): List[(String, String)] =
-    usedTypes.keys().asScala.filterNot { case (typeName, _) => typeName == Defines.ANY.label }.toList
+    usedTypes.keys().asScala.filterNot { case (typeName, _) => typeName == Defines.Any }.toList
 
   override def finish(): Unit = {
     astGenRunnerResult.skippedFiles.foreach { skippedFile =>

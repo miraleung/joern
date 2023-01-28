@@ -19,7 +19,9 @@ import io.shiftleft.codepropertygraph.generated.Languages
 import io.shiftleft.utils.IOUtils
 import org.slf4j.LoggerFactory
 import io.shiftleft.semanticcpg.language._
-
+import com.squareup.tools.maven.resolution.ArtifactResolver
+import io.joern.kotlin2cpg.interop.JavasrcInterop
+import java.net.{MalformedURLException, URL}
 import java.nio.file.{Files, Paths}
 import scala.util.Try
 
@@ -53,15 +55,13 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
         System.exit(1)
       }
 
-      val maxHeapSize          = Runtime.getRuntime().maxMemory()
+      val maxHeapSize          = Runtime.getRuntime.maxMemory()
       val formattedMaxHeapSize = String.format("%,.2f", maxHeapSize / (1024 * 1024 * 1024).toDouble)
       logger.info(s"Max heap size currently set to `${formattedMaxHeapSize}GB`.")
 
-      val dependenciesPaths = if (config.downloadDependencies) {
-        downloadDependencies(sourceDir, config)
-      } else {
-        logger.info(s"Not using any dependency jars.")
-        Seq()
+      val jar4ImportServiceOpt = config.jar4importServiceUrl match {
+        case Some(serviceUrl) => reachableJar4ImportService(serviceUrl)
+        case None             => None
       }
 
       val filesWithKtExtension = SourceFiles.determine(sourceDir, Set(".kt"))
@@ -73,9 +73,18 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
 
       val filesWithJavaExtension = SourceFiles.determine(sourceDir, Set(".java"))
       if (filesWithJavaExtension.nonEmpty) {
-        logger.info(
-          s"Found ${filesWithJavaExtension.size} files with the `.java` extension which will not be included in the result."
-        )
+        logger.info(s"Found ${filesWithJavaExtension.size} files with the `.java` extension.")
+      }
+
+      val dependenciesPaths = if (jar4ImportServiceOpt.isDefined) {
+        val importNames = importNamesForFilesAtPaths(filesWithKtExtension ++ filesWithJavaExtension)
+        logger.trace(s"Found imports: `$importNames`")
+        dependenciesFromJar4ImportService(jar4ImportServiceOpt.get, importNames)
+      } else if (config.downloadDependencies) {
+        downloadDependencies(sourceDir, config)
+      } else {
+        logger.info(s"Not downloading any dependencies.")
+        Seq()
       }
 
       val jarsAtConfigClassPath = findJarsIn(config.classpath)
@@ -90,9 +99,9 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
         if (config.withStdlibJarsInClassPath) defaultKotlinStdlibContentRootJarPaths
         else Seq()
       val defaultContentRootJars = stdlibJars ++
-        jarsAtConfigClassPath.map { path => DefaultContentRootJarPath(path, false) } ++
+        jarsAtConfigClassPath.map { path => DefaultContentRootJarPath(path, isResource = false) } ++
         dependenciesPaths.map { path =>
-          DefaultContentRootJarPath(path, false)
+          DefaultContentRootJarPath(path, isResource = false)
         }
       val messageCollector        = new ErrorLoggingMessageCollector
       val dirsForSourcesToCompile = ContentSourcesPicker.dirsForRoot(sourceDir)
@@ -101,12 +110,18 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
       }
       val plugins = Seq()
       val environment =
-        CompilerAPI.makeEnvironment(dirsForSourcesToCompile, defaultContentRootJars, plugins, messageCollector)
+        CompilerAPI.makeEnvironment(
+          dirsForSourcesToCompile,
+          filesWithJavaExtension,
+          defaultContentRootJars,
+          plugins,
+          messageCollector
+        )
 
       val sourceEntries = entriesForSources(environment.getSourceFiles.asScala, sourceDir)
       val sources = sourceEntries.filterNot { entry =>
         config.ignorePaths.exists { pathToIgnore =>
-          val parent = Paths.get(pathToIgnore).toAbsolutePath()
+          val parent = Paths.get(pathToIgnore).toAbsolutePath
           val child  = Paths.get(entry.filename)
           child.startsWith(parent)
         }
@@ -117,7 +132,15 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
       new MetaDataPass(cpg, Languages.KOTLIN, config.inputPath).createAndApply()
       val astCreator = new AstCreationPass(sources, typeInfoProvider, cpg)
       astCreator.createAndApply()
-      new TypeNodePass(astCreator.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
+      val kotlinAstCreatorTypes = astCreator.global.usedTypes.keys().asScala.toList
+      new TypeNodePass(kotlinAstCreatorTypes, cpg).createAndApply()
+
+      if (config.includeJavaSourceFiles && filesWithJavaExtension.nonEmpty) {
+        val javaAstCreator = JavasrcInterop.astCreationPass(filesWithJavaExtension, cpg)
+        javaAstCreator.createAndApply()
+        val javaAstCreatorTypes = javaAstCreator.global.usedTypes.keys().asScala.toList
+        new TypeNodePass((javaAstCreatorTypes.toSet -- kotlinAstCreatorTypes.toSet).toList, cpg).createAndApply()
+      }
 
       val configCreator = new ConfigPass(configFiles, cpg)
       configCreator.createAndApply()
@@ -126,6 +149,66 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
       if (!hasAtLeastOneMethodNode) {
         logger.warn("Resulting CPG does not contain any METHOD nodes.")
       }
+    }
+  }
+
+  private def dependenciesFromJar4ImportService(service: Jar4ImportService, importNames: Seq[String]): Seq[String] = {
+    try {
+      val coordinates = service.fetchDependencyCoordinates(importNames)
+      logger.debug(s"Found coordinates `$coordinates`.")
+
+      val resolver = new ArtifactResolver()
+      val artifacts = coordinates.map { coordinate =>
+        val strippedCoord = coordinate.stripPrefix("\"").stripSuffix("\"")
+        val result        = resolver.download(strippedCoord, true)
+        logger.debug(s"Downloaded artifact for coordinate `$strippedCoord`.")
+        result.component2().toAbsolutePath.toString
+      }
+      logger.info(s"Using `${artifacts.size}` dependencies.")
+
+      artifacts
+    } catch {
+      case e: Throwable =>
+        logger.info("Caught exception while downloading dependencies", e)
+        System.exit(1)
+        Seq()
+    }
+  }
+
+  private def importNamesForFilesAtPaths(paths: Seq[String]): Seq[String] = {
+    paths
+      .flatMap { filePath =>
+        val f = File(filePath)
+        f.lines.filter(_.startsWith("import")).toSeq
+      }
+      .map { line =>
+        val r = ".*import([^;]*).*".r
+        r.replaceAllIn(line, "$1").trim
+      }
+  }
+
+  private def reachableJar4ImportService(serviceUrl: String): Option[Jar4ImportService] = {
+    try {
+      val url            = new URL(serviceUrl)
+      val healthResponse = requests.get(url.toString + "/health")
+      if (healthResponse.statusCode != 200) {
+        println(s"The jar4import service at `${url.toString}` did not respond with 200 on the `/health` endpoint.")
+        System.exit(1)
+      }
+      Some(new Jar4ImportService(url.toString))
+    } catch {
+      case _: MalformedURLException =>
+        println(s"The specified jar4import service url parameter `$serviceUrl` is not a valid URL. Exiting.")
+        System.exit(1)
+        None
+      case _: java.net.ConnectException =>
+        println(s"Could not connect to service at url `$serviceUrl`. Exiting.")
+        System.exit(1)
+        None
+      case _: requests.RequestFailedException =>
+        println(s"Request to `$serviceUrl` failed. Exiting.")
+        System.exit(1)
+        None
     }
   }
 
@@ -198,9 +281,35 @@ class Kotlin2Cpg extends X2CpgFrontend[Config] {
           try {
             IOUtils.readLinesInFile(Paths.get(fnm._1)).mkString("\n")
           } catch {
-            case t: Throwable => parsingError + "\n" + t.toString
+            case t: Throwable => s"$parsingError\n${t.toString}"
           }
         FileContentAtPath(fileContents, fnm._2, fnm._1)
       }
+  }
+}
+
+class Jar4ImportService(url: String) {
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  val findUrl: String   = url + "/find"
+  val healthUrl: String = url + "/health"
+
+  def fetchDependencyCoordinates(imports: Seq[String]): Seq[String] = {
+    try {
+      val resp = requests.get(findUrl, params = Map("names" -> imports.mkString(",")))
+      if (resp.statusCode == 200) {
+        val got = ujson.read(resp.bytes)
+        got("matches") match {
+          case arr: ujson.Arr =>
+            val out = arr.value.collect { case s: ujson.Str => s.toString() }
+            logger.debug(s"Found `${out.size}` matches for provided imports `$imports`.")
+            out.toSeq
+          case _ =>
+            Seq()
+        }
+      } else Seq()
+    } catch {
+      case _: Throwable => Seq()
+    }
   }
 }

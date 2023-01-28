@@ -6,7 +6,7 @@ import io.shiftleft.codepropertygraph.generated.{NodeTypes, Properties}
 import overflowdb._
 import overflowdb.traversal.help
 import overflowdb.traversal.help.Doc
-import overflowdb.traversal.{Traversal, TraversalSource, jIteratortoTraversal, toElementTraversal, InitialTraversal}
+import overflowdb.traversal.{Traversal, TraversalSource, InitialTraversal}
 
 @help.TraversalSource
 class NodeTypeStarters(cpg: Cpg) extends TraversalSource(cpg.graph) {
@@ -58,6 +58,28 @@ class NodeTypeStarters(cpg: Cpg) extends TraversalSource(cpg.graph) {
     */
   def comment(code: String): Traversal[Comment] =
     comment.has(Properties.CODE -> code)
+
+  /** Traverse to all config files
+    */
+  @Doc(info = "All config files")
+  def configFile: Traversal[ConfigFile] =
+    InitialTraversal.from[ConfigFile](cpg.graph, NodeTypes.CONFIG_FILE)
+
+  /** Shorthand for `cpg.configFile.name(name)`
+    */
+  def configFile(name: String): Traversal[ConfigFile] =
+    configFile.name(name)
+
+  /** Traverse to all dependencies
+    */
+  @Doc(info = "All dependencies")
+  def dependency: Traversal[Dependency] =
+    InitialTraversal.from[Dependency](cpg.graph, NodeTypes.DEPENDENCY)
+
+  /** Shorthand for `cpg.dependency.name(name)`
+    */
+  def dependency(name: String): Traversal[Dependency] =
+    dependency.name(name)
 
   @Doc(info = "All control structures (source-based frontends)")
   def controlStructure: Traversal[ControlStructure] =
@@ -230,8 +252,8 @@ class NodeTypeStarters(cpg: Cpg) extends TraversalSource(cpg.graph) {
   def ret(code: String): Traversal[Return] =
     ret.code(code)
 
-  @Doc(info = "All static imports")
-  def staticImport: Traversal[Import] =
+  @Doc(info = "All imports")
+  def imports: Traversal[Import] =
     InitialTraversal.from[Import](cpg.graph, NodeTypes.IMPORT)
 
   @Doc(info = "All switch blocks (`ControlStructure` nodes)")
@@ -274,6 +296,12 @@ class NodeTypeStarters(cpg: Cpg) extends TraversalSource(cpg.graph) {
   @Doc(info = "All tags with given name")
   def tag(name: String): Traversal[Tag] =
     tag.name(name)
+
+  /** Traverse to all template DOM nodes
+    */
+  @Doc(info = "All template DOM nodes")
+  def templateDom: Traversal[TemplateDom] =
+    InitialTraversal.from[TemplateDom](cpg.graph, NodeTypes.TEMPLATE_DOM)
 
   /** Traverse to all type references
     */

@@ -1,59 +1,222 @@
 package io.joern.javasrc2cpg
 
 import better.files.File
-import io.joern.javasrc2cpg.passes.AstCreationPass
+import com.github.javaparser.ParserConfiguration.LanguageLevel
+import com.github.javaparser.{JavaParser, ParserConfiguration}
+import com.github.javaparser.ast.CompilationUnit
+import com.github.javaparser.ast.Node.Parsedness
+import com.github.javaparser.symbolsolver.JavaSymbolSolver
+import com.github.javaparser.symbolsolver.resolution.typesolvers.JarTypeSolver
+import io.joern.javasrc2cpg.passes.{AstCreationPass, ConfigFileCreationPass, TypeInferencePass}
+import io.joern.javasrc2cpg.typesolvers.{CachingReflectionTypeSolver, EagerSourceTypeSolver, SimpleCombinedTypeSolver}
+import io.joern.javasrc2cpg.util.{Delombok, SourceRootFinder}
+import io.joern.javasrc2cpg.util.Delombok.DelombokMode
 import io.shiftleft.codepropertygraph.Cpg
 import io.shiftleft.codepropertygraph.generated.Languages
 import io.joern.x2cpg.passes.frontend.{MetaDataPass, TypeNodePass}
 import io.joern.x2cpg.{SourceFiles, X2CpgFrontend}
 import io.joern.x2cpg.X2Cpg.withNewEmptyCpg
+import io.joern.x2cpg.utils.dependency.DependencyResolver
 import org.slf4j.LoggerFactory
 
-import scala.jdk.CollectionConverters.EnumerationHasAsScala
-import scala.util.Try
+import java.nio.file.Paths
+import java.util.regex.Pattern
+import scala.collection.parallel.CollectionConverters._
+import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters.RichOptional
+import scala.util.{Success, Try}
+
+case class SourceDirectoryInfo(typeSolverSourceDirs: List[String], sourceFiles: List[SourceFileInfo])
+case class SplitDirectories(analysisSourceDir: String, typesSourceDir: String)
+case class SplitJpAsts(analysisAsts: List[JpAstWithMeta], typesAsts: List[JpAstWithMeta])
+case class SourceFileInfo(analysisFileName: String, originalFilename: String)
+case class JpAstWithMeta(fileInfo: SourceFileInfo, compilationUnit: CompilationUnit)
 
 object JavaSrc2Cpg {
   val language: String = Languages.JAVASRC
+  private val logger   = LoggerFactory.getLogger(this.getClass)
 
-  def apply(): JavaSrc2Cpg = new JavaSrc2Cpg()
+  val sourceFileExtensions: Set[String] = Set(".java")
+  def apply(): JavaSrc2Cpg              = new JavaSrc2Cpg()
+
+  def getDependencyList(config: Config): Seq[String] = {
+    val codeDir = config.inputPath
+    if (config.fetchDependencies) {
+      DependencyResolver.getDependencies(Paths.get(codeDir)) match {
+        case Some(deps) => deps.toSeq
+        case None =>
+          logger.warn(s"Could not fetch dependencies for project at path $codeDir")
+          Seq()
+      }
+    } else {
+      logger.info("dependency resolving disabled")
+      Seq()
+    }
+  }
 }
 
 class JavaSrc2Cpg extends X2CpgFrontend[Config] {
   import JavaSrc2Cpg._
-  private val logger = LoggerFactory.getLogger(getClass)
 
-  val sourceFileExtensions = Set(".java")
-
-  def createCpg(config: Config): Try[Cpg] = {
+  private val logger = LoggerFactory.getLogger(this.getClass)
+  override def createCpg(config: Config): Try[Cpg] = {
     withNewEmptyCpg(config.outputPath, config: Config) { (cpg, config) =>
       new MetaDataPass(cpg, language, config.inputPath).createAndApply()
-      val (sourcesDir, sourceFileNames) = getSourcesFromDir(config.inputPath)
-      if (sourceFileNames.isEmpty) {
-        logger.error(s"no source files found in $sourcesDir")
-      } else {
-        logger.info(s"found ${sourceFileNames.size} source files")
-      }
 
-      val astCreator = new AstCreationPass(sourcesDir, sourceFileNames, config, cpg)
-      astCreator.createAndApply()
-      new TypeNodePass(astCreator.global.usedTypes.keys().asScala.toList, cpg)
-        .createAndApply()
+      val sourceDirectories = getSourcePathsWithDelombok(config)
+      val javaparserAsts    = getSplitJavaparserAsts(sourceDirectories, config)
+      val symbolSolver      = createSymbolSolver(javaparserAsts.typesAsts, config)
+      javaparserAsts.analysisAsts.map(_.compilationUnit).foreach(symbolSolver.inject)
+      javaparserAsts.typesAsts.map(_.compilationUnit).foreach(symbolSolver.inject)
+
+      val astCreationPass = new AstCreationPass(javaparserAsts.analysisAsts, config, cpg, symbolSolver)
+      astCreationPass.createAndApply()
+      new ConfigFileCreationPass(config.inputPath, cpg).createAndApply()
+      new TypeNodePass(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
+      new TypeInferencePass(cpg).createAndApply()
     }
   }
 
-  /** JavaParser requires that the input path is a directory and not a single source file. This is inconvenient for
-    * small-scale testing, so if a single source file is created, copy it to a temp directory.
+  /** Will extract source files from the given path if it is a directory, or in the case of a single file, will check
+    * the file's extension and return a singleton list of the file if the file extension is supported.
+    * @param sourcePath
+    *   the input directory or source file.
+    * @return
+    *   a list of all source files.
     */
-  private def getSourcesFromDir(sourceCodePath: String): (String, List[String]) = {
-    val sourceFile = File(sourceCodePath)
-    if (sourceFile.isDirectory) {
-      val sourceFileNames = SourceFiles.determine(sourceCodePath, sourceFileExtensions)
-      (sourceCodePath, sourceFileNames)
-    } else {
-      val dir = File.newTemporaryDirectory("javasrc").deleteOnExit()
-      sourceFile.copyToDirectory(dir).deleteOnExit()
-      (dir.pathAsString, List(sourceFile.pathAsString))
+  private def getSourcesFromDir(sourcePath: String): List[String] = {
+    val f = File(sourcePath)
+    if (f.isDirectory)
+      SourceRootFinder.getSourceRoots(sourcePath).flatMap(SourceFiles.determine(_, sourceFileExtensions))
+    else if (f.hasExtension && f.extension.exists(f => sourceFileExtensions.contains(f)))
+      List(sourcePath)
+    else
+      List.empty
+  }
+
+  private def parseFile(filename: String): Option[CompilationUnit] = {
+    lazy val config      = new ParserConfiguration().setLanguageLevel(LanguageLevel.BLEEDING_EDGE)
+    lazy val parseResult = new JavaParser(config).parse(new java.io.File(filename))
+
+    parseResult.getProblems.asScala.toList match {
+      case Nil => // Just carry on as usual
+      case problems =>
+        logger.warn(s"ERRORS: Encountered problems while parsing file $filename:")
+        problems.foreach { problem =>
+          logger.warn(s"- ${problem.getMessage}")
+        }
     }
+
+    parseResult.getResult.toScala match {
+      case Some(result) if result.getParsed == Parsedness.PARSED => Some(result)
+      case _ =>
+        logger.warn(s"FAILED to parse file $filename")
+        None
+    }
+  }
+
+  private def escapeBackslash(path: String): String = {
+    path.replaceAll(raw"\\", raw"\\\\")
+  }
+
+  private def getSplitJavaparserAsts(sourceDirectories: SplitDirectories, config: Config): SplitJpAsts = {
+    val analysisSources = getSourcesFromDir(sourceDirectories.analysisSourceDir)
+    val typesSources    = getSourcesFromDir(sourceDirectories.typesSourceDir)
+
+    val analysisAstsMap = analysisSources.par.flatMap { sourceFilename =>
+      val originalFilename = sourceFilename.replaceAll(
+        // Pattern.quote used to escape Windows paths
+        escapeBackslash(sourceDirectories.analysisSourceDir),
+        escapeBackslash(config.inputPath)
+      )
+      val sourceFileInfo  = SourceFileInfo(sourceFilename, originalFilename)
+      val maybeParsedFile = parseFile(sourceFilename)
+
+      maybeParsedFile.map(cu => sourceFilename -> JpAstWithMeta(sourceFileInfo, cu))
+    }.toMap
+
+    val analysisAsts = analysisAstsMap.values.toList
+    val typesAsts = typesSources.par.flatMap { sourceFilename =>
+      val sourceFileInfo = SourceFileInfo(sourceFilename, sourceFilename)
+      analysisAstsMap
+        .get(sourceFilename)
+        .map(_.compilationUnit)
+        .orElse(parseFile(sourceFilename))
+        .map(cu => JpAstWithMeta(sourceFileInfo, cu))
+    }.toList
+
+    SplitJpAsts(analysisAsts, typesAsts)
+  }
+
+  private def getSourcePathsWithDelombok(config: Config): SplitDirectories = {
+    val dependencies        = getDependencyList(config)
+    val delombokMode        = getDelombokMode(config)
+    val hasLombokDependency = dependencies.exists(_.contains("lombok"))
+    val originalSourcesDir  = config.inputPath
+    lazy val delombokDir    = Delombok.run(originalSourcesDir, config.delombokJavaHome)
+
+    delombokMode match {
+      case DelombokMode.Default if hasLombokDependency =>
+        logger.info(s"Analysing delomboked code as lombok dependency was found.")
+        SplitDirectories(delombokDir, delombokDir)
+
+      case DelombokMode.RunDelombok =>
+        SplitDirectories(delombokDir, delombokDir)
+
+      case DelombokMode.TypesOnly =>
+        SplitDirectories(originalSourcesDir, delombokDir)
+
+      case _ => SplitDirectories(originalSourcesDir, originalSourcesDir)
+    }
+  }
+
+  private def getDelombokMode(config: Config): DelombokMode = {
+    config.delombokMode.map(_.toLowerCase) match {
+      case None                 => DelombokMode.Default
+      case Some("no-delombok")  => DelombokMode.NoDelombok
+      case Some("default")      => DelombokMode.Default
+      case Some("types-only")   => DelombokMode.TypesOnly
+      case Some("run-delombok") => DelombokMode.RunDelombok
+      case Some(value) =>
+        logger.warn(s"Found unrecognised delombok mode `$value`. Using default instead.")
+        DelombokMode.Default
+    }
+  }
+
+  private def recursiveJarsFromPath(path: String): List[String] = {
+    Try(File(path)) match {
+      case Success(file) if file.isDirectory =>
+        file.listRecursively
+          .map(_.canonicalPath)
+          .filter(_.endsWith(".jar"))
+          .toList
+
+      case Success(file) if file.canonicalPath.endsWith(".jar") =>
+        List(file.canonicalPath)
+
+      case _ =>
+        Nil
+    }
+  }
+
+  private def createSymbolSolver(typesAsts: List[JpAstWithMeta], config: Config): JavaSymbolSolver = {
+    val combinedTypeSolver   = new SimpleCombinedTypeSolver()
+    val reflectionTypeSolver = new CachingReflectionTypeSolver()
+    combinedTypeSolver.add(reflectionTypeSolver)
+
+    val sourceTypeSolver = EagerSourceTypeSolver(typesAsts, combinedTypeSolver)
+    // The sourceTypeSolver will often be the fastest due to there being no possibility of encountering a SOE on lookup.
+    combinedTypeSolver.prepend(sourceTypeSolver)
+
+    // Add solvers for inference jars
+    val jarsList = config.inferenceJarPaths.flatMap(recursiveJarsFromPath).toList
+    (jarsList ++ getDependencyList(config))
+      .flatMap { path =>
+        Try(new JarTypeSolver(path)).toOption
+      }
+      .foreach { combinedTypeSolver.add(_) }
+
+    new JavaSymbolSolver(combinedTypeSolver)
   }
 
 }

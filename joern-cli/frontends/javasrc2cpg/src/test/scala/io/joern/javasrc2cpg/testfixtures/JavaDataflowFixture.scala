@@ -1,23 +1,19 @@
 package io.joern.javasrc2cpg.testfixtures
 
+import io.joern.dataflowengineoss.language._
+import io.joern.dataflowengineoss.queryengine.EngineContext
 import io.joern.javasrc2cpg.JavaSrc2CpgTestContext
 import io.shiftleft.codepropertygraph.Cpg
-import io.shiftleft.codepropertygraph.generated.nodes.{AstNode, Expression, FieldIdentifier, Identifier, Literal}
-import io.joern.dataflowengineoss.queryengine.{EngineConfig, EngineContext}
-import io.joern.dataflowengineoss.semanticsloader.{Parser, Semantics}
+import io.shiftleft.codepropertygraph.generated.nodes.{Expression, Literal}
 import io.shiftleft.semanticcpg.language._
-import io.shiftleft.utils.ProjectRoot
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import overflowdb.NodeRef
 import overflowdb.traversal.Traversal
 
 class JavaDataflowFixture extends AnyFlatSpec with Matchers {
 
-  val semanticsFile: String            = ProjectRoot.relativise("joern-cli/src/main/resources/default.semantics")
-  lazy val defaultSemantics: Semantics = Semantics.fromList(new Parser().parseFile(semanticsFile))
-  implicit val resolver: ICallResolver = NoResolve
-  implicit lazy val engineContext: EngineContext = EngineContext(defaultSemantics, EngineConfig(maxCallDepth = 4))
+  implicit val resolver: ICallResolver           = NoResolve
+  implicit lazy val engineContext: EngineContext = EngineContext()
 
   val code: String  = ""
   lazy val cpg: Cpg = JavaSrc2CpgTestContext.buildCpgWithDataflow(code)
@@ -51,4 +47,6 @@ class JavaDataflowFixture extends AnyFlatSpec with Matchers {
 
     (source, sink)
   }
+
+  protected def flowToResultPairs(path: Path): List[(String, Option[Integer])] = path.resultPairs()
 }

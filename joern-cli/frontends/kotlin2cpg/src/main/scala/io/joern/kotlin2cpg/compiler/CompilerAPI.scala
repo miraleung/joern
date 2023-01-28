@@ -6,7 +6,7 @@ import java.io.{File, FileOutputStream}
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.config.KotlinSourceRoot
 import org.jetbrains.kotlin.cli.jvm.compiler.{EnvironmentConfigFiles, KotlinCoreEnvironment}
-import org.jetbrains.kotlin.cli.jvm.config.JvmClasspathRoot
+import org.jetbrains.kotlin.cli.jvm.config.{JavaSourceRoot, JvmClasspathRoot}
 import org.jetbrains.kotlin.config.{CommonConfigurationKeys, CompilerConfiguration, CompilerConfigurationKey}
 import org.jetbrains.kotlin.metadata.jvm.deserialization.JvmProtoBufUtil
 import org.jetbrains.kotlin.com.intellij.mock.MockProject
@@ -18,6 +18,7 @@ import org.jetbrains.kotlin.cli.common.messages.{
   MessageCollector
 }
 import org.slf4j.LoggerFactory
+
 import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 case class CompilerPluginInfo(
@@ -31,6 +32,7 @@ object CompilerAPI {
 
   def makeEnvironment(
     forDirectories: Seq[String],
+    javaSourceRoots: Seq[String],
     defaultContentRootJarPaths: Seq[DefaultContentRootJarPath] = List(),
     compilerPlugins: Seq[CompilerPluginInfo] = Seq(),
     messageCollector: MessageCollector
@@ -46,9 +48,9 @@ object CompilerAPI {
         val f = new File(path.path)
         if (f.exists()) {
           config.add(CLIConfigurationKeys.CONTENT_ROOTS, new JvmClasspathRoot(f))
-          logger.debug("Added dependency from path `" + path.path + "`.")
+          logger.debug(s"Added dependency from path `${path.path}`.")
         } else {
-          logger.warn("Path to dependency does not point to existing file `" + path.path + "`.")
+          logger.warn(s"Path to dependency does not point to existing file `${path.path}`.")
         }
       } else {
         val resourceStream = getClass.getClassLoader.getResourceAsStream(path.path)
@@ -66,12 +68,18 @@ object CompilerAPI {
           outStream.close()
 
           config.add(CLIConfigurationKeys.CONTENT_ROOTS, new JvmClasspathRoot(tempFile))
-          logger.debug("Added dependency from resources `" + path.path + "`.")
+          logger.debug(s"Added dependency from resources `${path.path}`.")
         } else {
-          logger.warn("Path to default dependency does not point to existing resource `" + path.path + "`.")
+          logger.warn(s"Path to default dependency does not point to existing resource `${path.path}`.")
         }
       }
     }
+
+    javaSourceRoots.foreach { source =>
+      val f = new File(source)
+      config.add(CLIConfigurationKeys.CONTENT_ROOTS, new JavaSourceRoot(f, ""))
+    }
+
     config.put(CommonConfigurationKeys.MODULE_NAME, JvmProtoBufUtil.DEFAULT_MODULE_NAME)
 
     val configFiles = EnvironmentConfigFiles.JVM_CONFIG_FILES

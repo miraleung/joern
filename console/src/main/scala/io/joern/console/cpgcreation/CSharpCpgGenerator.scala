@@ -22,9 +22,10 @@ case class CSharpCpgGenerator(config: FrontendConfig, rootPath: Path) extends Cp
       command = "powershell"
       arguments = Seq(rootPath.resolve("csharp2cpg.ps1").toString) ++ arguments
     }
-    runShellCommand(command, arguments).map(_ => outputPath)
+    runShellCommand(command, arguments).toOption.map(_ => outputPath)
   }
 
   override def isAvailable: Boolean = rootPath.resolve("csharp2cpg.sh").toFile.exists()
 
+  override def isJvmBased = false
 }

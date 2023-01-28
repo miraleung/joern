@@ -1,7 +1,7 @@
 name := "javasrc2cpg"
 
 scalaVersion       := "2.13.8"
-crossScalaVersions := Seq("2.13.8", "3.1.2")
+crossScalaVersions := Seq("2.13.8", "3.2.1")
 
 dependsOn(Projects.dataflowengineoss, Projects.x2cpg % "compile->compile;test->test")
 
@@ -11,8 +11,10 @@ libraryDependencies ++= Seq(
   "com.github.javaparser"    % "javaparser-symbol-solver-core" % "3.24.3-SNAPSHOT",
   //"com.github.javaparser"    % "javaparser-symbol-solver-core" % "3.24.2",
   //"io.joern"                 % "javaparser-symbol-solver-core" % "3.24.3-SL3", // custom build of our fork, sources at https://github.com/mpollmeier/javaparser
-  "org.gradle"               % "gradle-tooling-api" % Versions.gradleTooling % Optional,
-  "org.scalatest"           %% "scalatest"                     % Versions.scalatest % Test
+  "org.gradle"        % "gradle-tooling-api" % Versions.gradleTooling,
+  "org.scalatest"    %% "scalatest"          % Versions.scalatest % Test,
+  "org.projectlombok" % "lombok"             % "1.18.24",
+  "org.scala-lang.modules" %% "scala-parallel-collections" % "1.0.4"
 )
 
 scalacOptions ++= Seq(

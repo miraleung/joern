@@ -1,5 +1,6 @@
 package io.joern.kotlin2cpg.querying
 
+import io.joern.kotlin2cpg.Constants
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.{DispatchTypes, Operators}
 import io.shiftleft.codepropertygraph.generated.nodes.{Call, FieldIdentifier, Identifier, MethodParameterIn}
@@ -7,10 +8,10 @@ import io.shiftleft.semanticcpg.language._
 
 class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
-  implicit val resolver = NoResolve
+  implicit val resolver: ICallResolver = NoResolve
 
   "CPG for a class declaration with an implicit constructor" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Foo
@@ -19,14 +20,14 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should contain a METHOD node for the constructor with the correct props set" in {
       val List(m) = cpg.typeDecl.fullNameExact("mypkg.Foo").method.l
       m.fullName shouldBe "mypkg.Foo.<init>:void()"
-      m.name shouldBe "<init>"
+      m.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
       m.parameter.size shouldBe 1
-      m.block.size shouldBe 1
+      Option(m.block).isDefined shouldBe true
     }
   }
 
   "CPG for code with class with param in its primary constructor" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class AClass(x: String)
@@ -35,15 +36,15 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should contain a METHOD node for the constructor with a block with no children" in {
       val List(m) = cpg.typeDecl.fullNameExact("mypkg.AClass").method.l
       m.fullName shouldBe "mypkg.AClass.<init>:void(java.lang.String)"
-      m.name shouldBe "<init>"
+      m.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
       m.parameter.size shouldBe 2
-      m.block.size shouldBe 1
+      Option(m.block).isDefined shouldBe true
       m.block.expressionDown.size shouldBe 0
     }
   }
 
   "CPG for code with class which defines member in its primary constructor" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class AClass(val x: String)
@@ -63,9 +64,9 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should contain a METHOD node for the constructor with the correct props set" in {
       val List(m) = cpg.typeDecl.fullNameExact("mypkg.AClass").method.l
       m.fullName shouldBe "mypkg.AClass.<init>:void(java.lang.String)"
-      m.name shouldBe "<init>"
+      m.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
       m.parameter.size shouldBe 2
-      m.block.size shouldBe 1
+      Option(m.block).isDefined shouldBe true
 
       val List(firstParam: MethodParameterIn, secondParam: MethodParameterIn) = m.parameter.l
       firstParam.name shouldBe "this"
@@ -109,7 +110,7 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for a class declaration with an implicit constructor with parameters" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Foo(bar: String) {
@@ -119,14 +120,14 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should contain a METHOD node for the constructor with the correct props set" in {
       val List(m) = cpg.typeDecl.fullNameExact("mypkg.Foo").method.l
       m.fullName shouldBe "mypkg.Foo.<init>:void(java.lang.String)"
-      m.name shouldBe "<init>"
+      m.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
       m.parameter.size shouldBe 2
-      m.block.size shouldBe 1
+      Option(m.block).isDefined shouldBe true
     }
   }
 
   "CPG for a class declaration with an explicit constructor with parameters" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Foo constructor(bar: String) {
@@ -136,14 +137,14 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should contain a METHOD node for the constructor with the correct props set" in {
       val List(m) = cpg.typeDecl.fullNameExact("mypkg.Foo").method.l
       m.fullName shouldBe "mypkg.Foo.<init>:void(java.lang.String)"
-      m.name shouldBe "<init>"
+      m.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
       m.parameter.size shouldBe 2
-      m.block.size shouldBe 1
+      Option(m.block).isDefined shouldBe true
     }
   }
 
   "CPG for a class declaration with secondary constructor" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Foo(foo: String) {
@@ -166,33 +167,31 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     }
 
     "should contain a METHOD node for the secondary constructor with the correct number of parameters" in {
-      cpg.typeDecl.fullNameExact("mypkg.Foo").method.drop(1).take(1).parameter.size shouldBe 3
+      cpg.typeDecl.fullNameExact("mypkg.Foo").method.slice(1, 2).parameter.size shouldBe 3
     }
 
     "should contain a METHOD node for the primary constructor with properties set correctly" in {
       val List(m) = cpg.typeDecl.fullNameExact("mypkg.Foo").method.take(1).l
       m.lineNumber shouldBe Some(4)
       m.columnNumber shouldBe Some(9)
-      m.methodReturn.code shouldBe "mypkg.Foo"
+      m.methodReturn.typeFullName shouldBe "void"
       m.methodReturn.lineNumber shouldBe Some(4)
       m.methodReturn.columnNumber shouldBe Some(9)
 
-      m.block.size shouldBe 1
       m.block.astChildren.size shouldBe 0
     }
 
     "should contain a METHOD node for the secondary constructor with properties set correctly" in {
-      val List(m) = cpg.typeDecl.fullNameExact("mypkg.Foo").method.drop(1).take(1).l
+      val List(m) = cpg.typeDecl.fullNameExact("mypkg.Foo").method.slice(1, 2).l
       m.fullName shouldBe "mypkg.Foo.<init>:void(java.lang.String,int)"
-      m.name shouldBe "<init>"
+      m.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
       m.lineNumber shouldBe Some(6)
       m.columnNumber shouldBe Some(4)
-      m.methodReturn.code shouldBe "mypkg.Foo"
+      m.methodReturn.typeFullName shouldBe "void"
       m.methodReturn.lineNumber shouldBe Some(6)
       m.methodReturn.columnNumber shouldBe Some(4)
 
-      m.block.size shouldBe 1
-      m.block.astChildren.map(_.code).l shouldBe List("this.bar = bar")
+      m.block.astChildren.map(_.code).l shouldBe List(Constants.init, "this.bar = bar")
 
       val List(mThisParam: MethodParameterIn, firstParam: MethodParameterIn, secondParam: MethodParameterIn) =
         m.parameter.l
@@ -200,13 +199,13 @@ class ConstructorTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
       firstParam.name shouldBe "foo"
       secondParam.name shouldBe "bar"
 
-      val List(b)                     = m.block.l
-      val List(firstBlockChild: Call) = b.astChildren.l
-      firstBlockChild.methodFullName shouldBe Operators.assignment
-      firstBlockChild.code shouldBe "this.bar = bar"
-      firstBlockChild.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
+      val b                                     = m.block
+      val List(_: Call, secondBlockChild: Call) = b.astChildren.l
+      secondBlockChild.methodFullName shouldBe Operators.assignment
+      secondBlockChild.code shouldBe "this.bar = bar"
+      secondBlockChild.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
 
-      val List(assignmentLhs: Call, assignmentRhs: Identifier) = firstBlockChild.argument.l
+      val List(assignmentLhs: Call, assignmentRhs: Identifier) = secondBlockChild.argument.l
       assignmentLhs.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
       assignmentLhs.methodFullName shouldBe Operators.fieldAccess
       assignmentLhs.name shouldBe Operators.fieldAccess

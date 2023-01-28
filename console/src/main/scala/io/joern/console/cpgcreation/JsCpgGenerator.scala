@@ -15,9 +15,11 @@ case class JsCpgGenerator(config: FrontendConfig, rootPath: Path) extends CpgGen
     namespaces: List[String] = List()
   ): Option[String] = {
     val arguments = Seq(inputPath, "--output", outputPath) ++ config.cmdLineParams
-    runShellCommand(command.toString, arguments).map(_ => outputPath)
+    runShellCommand(command.toString, arguments).toOption.map(_ => outputPath)
   }
 
   override def isAvailable: Boolean =
     command.toFile.exists
+
+  override def isJvmBased = true
 }

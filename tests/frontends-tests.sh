@@ -7,20 +7,25 @@ SCRIPT_ABS_DIR=$(dirname "$SCRIPT_ABS_PATH")
 
 JOERN="$SCRIPT_ABS_DIR"/../joern
 
+# first, run a simplistic smoke test
+$JOERN --script tests/frontends-smoketest.sc
+
+# now test all frontends with proper input code
+
 # Don't test java since we're using javasrc for all Java srcs.
 # Originally, java came after javasrc below, was 7 for minMethodCount,
 # and callsExternalMethod for expectedMethod.
-frontends=(c javascript javasrc ghidra pythonsrc)
+frontends=(c jssrc javasrc ghidra pythonsrc)
 declare -A minMethodCount=(
   [c]=2
-  [javascript]=3
+  [jssrc]=3
   [javasrc]=7
   [ghidra]=100
   [pythonsrc]=2
 )
 declare -A expectedMethod=(
   [c]=print_number
-  [javascript]=lookForProperty
+  [jssrc]=lookForProperty
   [javasrc]=callsExternalMethod
   [ghidra]=reallocarray
   [pythonsrc]=my_fun

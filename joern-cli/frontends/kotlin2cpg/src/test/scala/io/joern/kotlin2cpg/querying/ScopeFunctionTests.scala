@@ -1,71 +1,84 @@
 package io.joern.kotlin2cpg.querying
 
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
+import io.shiftleft.codepropertygraph.generated.nodes.{Block, Return}
 import io.shiftleft.semanticcpg.language._
 
 class ScopeFunctionTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   "CPG for code call to `also` scope function without an explicitly-defined parameter" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |fun foo() {
-        |  1.also { it }
-        |}
-        |""".stripMargin)
-
-    "should contain a METHOD_PARAMETER_IN node for the implicit parameter _this_" in {
-      val List(p) = cpg.method.fullName(".*lambda.*").parameter.l
-      p.name shouldBe "it"
-    }
-  }
-
-  "CPG for code call to `apply` scope function without an explicitly-defined parameter" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |fun foo() {
-        |  1.apply { this }
-        |}
-        |""".stripMargin)
-
-    "should contain a METHOD_PARAMETER_IN node for the implicit parameter _this_" in {
-      val List(p) = cpg.method.fullName(".*lambda.*").parameter.l
-      p.name shouldBe "this"
-    }
-  }
-
-  "CPG for code call to `let` scope function without an explicitly-defined parameter" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |fun foo() {
-        |  1.let { it }
-        |}
-        |""".stripMargin)
+    val cpg = code("fun f1(p: String) { p.also { println(it) } }")
 
     "should contain a METHOD_PARAMETER_IN node for the implicit parameter _it_" in {
       val List(p) = cpg.method.fullName(".*lambda.*").parameter.l
       p.name shouldBe "it"
     }
+
+    "should NOT contain a RETURN node around as the last child of the lambda's BLOCK" in {
+      val List(b: Block) = cpg.method.fullName(".*lambda.*").block.l
+      val hasReturnAsLastChild = b.astChildren.last match {
+        case _: Return => true
+        case _         => false
+      }
+      hasReturnAsLastChild shouldBe false
+    }
+  }
+
+  "CPG for code with call to `apply` scope function without an explicitly-defined parameter" should {
+    val cpg = code("fun f1(p: String) { p.apply { println(this) } }")
+
+    "should contain a METHOD_PARAMETER_IN node for the implicit parameter" in {
+      val List(p) = cpg.method.fullName(".*lambda.*").parameter.l
+      p.name shouldBe "this"
+    }
+
+    "should NOT contain a RETURN node around as the last child of the lambda's BLOCK" in {
+      val List(b: Block) = cpg.method.fullName(".*lambda.*").block.l
+      val hasReturnAsLastChild = b.astChildren.last match {
+        case _: Return => true
+        case _         => false
+      }
+      hasReturnAsLastChild shouldBe false
+    }
+  }
+
+  "CPG for code call to `let` scope function without an explicitly-defined parameter" should {
+    val cpg = code("fun f1(p: String) { p.let { println(it) } }")
+
+    "should contain a METHOD_PARAMETER_IN node for the implicit parameter" in {
+      val List(p) = cpg.method.fullName(".*lambda.*").parameter.l
+      p.name shouldBe "it"
+    }
+
+    "should contain a RETURN node around as the last child of the lambda's BLOCK" in {
+      val List(b: Block) = cpg.method.fullName(".*lambda.*").block.l
+      val hasReturnAsLastChild = b.astChildren.last match {
+        case _: Return => true
+        case _         => false
+      }
+      hasReturnAsLastChild shouldBe true
+    }
   }
 
   "CPG for code call to `run` scope function without an explicitly-defined parameter" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |fun foo() {
-        |  1.run { this }
-        |}
-        |""".stripMargin)
+    val cpg = code("fun f1(p: String) { p.run { println(this) } }")
 
     "should contain a METHOD_PARAMETER_IN node for the implicit parameter _this_" in {
       val List(p) = cpg.method.fullName(".*lambda.*").parameter.l
       p.name shouldBe "this"
     }
+
+    "should contain a RETURN node around as the last child of the lambda's BLOCK" in {
+      val List(b: Block) = cpg.method.fullName(".*lambda.*").block.l
+      val hasReturnAsLastChild = b.astChildren.last match {
+        case _: Return => true
+        case _         => false
+      }
+      hasReturnAsLastChild shouldBe true
+    }
   }
 
   "CPG for code with simple `let` scope function" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -98,7 +111,7 @@ class ScopeFunctionTests extends KotlinCode2CpgFixture(withOssDataflow = false) 
   }
 
   "CPG for code with simple `run` scope function" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -132,7 +145,7 @@ class ScopeFunctionTests extends KotlinCode2CpgFixture(withOssDataflow = false) 
   }
 
   "CPG for code with simple `also` scope function" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -166,7 +179,7 @@ class ScopeFunctionTests extends KotlinCode2CpgFixture(withOssDataflow = false) 
   }
 
   "CPG for code with `with` scope function" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo(x: String): Int {
@@ -187,7 +200,7 @@ class ScopeFunctionTests extends KotlinCode2CpgFixture(withOssDataflow = false) 
   }
 
   "CPG for code with simple `apply` scope function" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Bar(p: String)
@@ -203,7 +216,7 @@ class ScopeFunctionTests extends KotlinCode2CpgFixture(withOssDataflow = false) 
   }
 
   "CPG for code with simple `takeIf` scope function" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {

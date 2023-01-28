@@ -3,8 +3,10 @@ package io.shiftleft.semanticcpg
 import io.shiftleft.codepropertygraph.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes._
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, Languages, ModifierTypes}
-import io.shiftleft.passes.{CpgPass, DiffGraph}
+import io.shiftleft.passes.CpgPass
 import io.shiftleft.semanticcpg.language._
+import overflowdb.BatchedUpdate
+import overflowdb.BatchedUpdate.DiffGraphBuilder
 
 package object testing {
 
@@ -12,8 +14,7 @@ package object testing {
 
     def apply(): MockCpg = new MockCpg
 
-    def apply(f: (DiffGraph.Builder, Cpg) => Unit): MockCpg = new MockCpg().withCustom(f)
-
+    def apply(f: (DiffGraphBuilder, Cpg) => Unit): MockCpg = new MockCpg().withCustom(f)
   }
 
   case class MockCpg(cpg: Cpg = Cpg.emptyCpg) {
@@ -89,7 +90,7 @@ package object testing {
       fileName: String = ""
     ): MockCpg =
       withCustom { (graph, _) =>
-        val retParam  = NewMethodReturn().typeFullName("int")
+        val retParam  = NewMethodReturn().typeFullName("int").order(10)
         val param     = NewMethodParameterIn().order(1).index(1).name("param1")
         val paramType = NewType().name("paramtype")
         val paramOut  = NewMethodParameterOut().name("param1").order(1)
@@ -125,19 +126,19 @@ package object testing {
       paramTags: List[(String, String)] = List()
     ): MockCpg =
       withCustom { (graph, cpg) =>
-        implicit val diffGraph: DiffGraph.Builder = graph
+        implicit val diffGraph: DiffGraphBuilder = graph
         methodTags.foreach { case (k, v) =>
-          cpg.method.name(methodName).newTagNodePair(k, v).store()
+          cpg.method.name(methodName).newTagNodePair(k, v).store()(diffGraph)
         }
         paramTags.foreach { case (k, v) =>
-          cpg.method.name(methodName).parameter.newTagNodePair(k, v).store()
+          cpg.method.name(methodName).parameter.newTagNodePair(k, v).store()(diffGraph)
         }
       }
 
     def withCallInMethod(methodName: String, callName: String, code: Option[String] = None): MockCpg =
       withCustom { (graph, cpg) =>
         val methodNode = cpg.method.name(methodName).head
-        val blockNode  = methodNode.block.head
+        val blockNode  = methodNode.block
         val callNode   = NewCall().name(callName).code(code.getOrElse(callName))
         graph.addNode(callNode)
         graph.addEdge(blockNode, callNode, EdgeTypes.AST)
@@ -156,7 +157,7 @@ package object testing {
     def withLocalInMethod(methodName: String, localName: String): MockCpg =
       withCustom { (graph, cpg) =>
         val methodNode = cpg.method.name(methodName).head
-        val blockNode  = methodNode.block.head
+        val blockNode  = methodNode.block
         val typeNode   = NewType().name("alocaltype")
         val localNode  = NewLocal().name(localName).typeFullName("alocaltype")
         graph.addNode(localNode)
@@ -168,7 +169,7 @@ package object testing {
     def withLiteralArgument(callName: String, literalCode: String): MockCpg = {
       withCustom { (graph, cpg) =>
         val callNode    = cpg.call.name(callName).head
-        val methodNode  = callNode.method.head
+        val methodNode  = callNode.method
         val literalNode = NewLiteral().code(literalCode)
         val typeDecl = NewTypeDecl()
           .name("ATypeDecl")
@@ -189,7 +190,7 @@ package object testing {
 
     def withArgument(callName: String, newNode: NewNode): MockCpg = withCustom { (graph, cpg) =>
       val callNode   = cpg.call.name(callName).head
-      val methodNode = callNode.method.head
+      val methodNode = callNode.method
       val typeDecl   = NewTypeDecl().name("abc")
       graph.addEdge(callNode, newNode, EdgeTypes.AST)
       graph.addEdge(callNode, newNode, EdgeTypes.ARGUMENT)
@@ -198,12 +199,12 @@ package object testing {
       graph.addNode(newNode)
     }
 
-    def withCustom(f: (DiffGraph.Builder, Cpg) => Unit): MockCpg = {
-      val diffGraph = new DiffGraph.Builder
+    def withCustom(f: (DiffGraphBuilder, Cpg) => Unit): MockCpg = {
+      val diffGraph = new DiffGraphBuilder
       f(diffGraph, cpg)
       class MyPass extends CpgPass(cpg) {
-        override def run(): Iterator[DiffGraph] = {
-          Iterator(diffGraph.build())
+        override def run(builder: BatchedUpdate.DiffGraphBuilder): Unit = {
+          builder.absorb(diffGraph)
         }
       }
       new MyPass().createAndApply()

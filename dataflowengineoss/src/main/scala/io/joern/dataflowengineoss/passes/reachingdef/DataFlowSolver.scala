@@ -1,7 +1,5 @@
 package io.joern.dataflowengineoss.passes.reachingdef
 
-import io.shiftleft.codepropertygraph.generated.nodes.StoredNode
-
 import scala.collection.mutable
 
 class DataFlowSolver {
@@ -10,16 +8,17 @@ class DataFlowSolver {
     * and `out`. These maps associate all CFG nodes with the set of definitions at node entry and node exit
     * respectively.
     */
-  def calculateMopSolutionForwards[T <: Iterable[_]](problem: DataFlowProblem[T]): Solution[T] = {
-    var out: Map[StoredNode, T] = problem.inOutInit.initOut
-    var in                      = problem.inOutInit.initIn
-    val workList                = mutable.ListBuffer[StoredNode]()
+  def calculateMopSolutionForwards[Node, T <: Iterable[_]](problem: DataFlowProblem[Node, T]): Solution[Node, T] = {
+    var out: Map[Node, T] = problem.inOutInit.initOut
+    var in                = problem.inOutInit.initIn
+    val workList          = mutable.ListBuffer[Node]()
     workList ++= problem.flowGraph.allNodesReversePostOrder
 
     while (workList.nonEmpty) {
       val newEntries = workList.flatMap { n =>
         val inSet = problem.flowGraph
           .pred(n)
+          .iterator
           .map(out)
           .reduceOption((x, y) => problem.meet(x, y))
           .getOrElse(problem.empty)
@@ -43,16 +42,17 @@ class DataFlowSolver {
     * and `out`. These maps associate all CFG nodes with the set of definitions at node entry and node exit
     * respectively.
     */
-  def calculateMopSolutionBackwards[T <: Iterable[_]](problem: DataFlowProblem[T]): Solution[T] = {
-    var out: Map[StoredNode, T] = problem.inOutInit.initOut
-    var in                      = problem.inOutInit.initIn
-    val workList                = mutable.ListBuffer[StoredNode]()
+  def calculateMopSolutionBackwards[Node, T <: Iterable[_]](problem: DataFlowProblem[Node, T]): Solution[Node, T] = {
+    var out: Map[Node, T] = problem.inOutInit.initOut
+    var in                = problem.inOutInit.initIn
+    val workList          = mutable.ListBuffer[Node]()
     workList ++= problem.flowGraph.allNodesPostOrder
 
     while (workList.nonEmpty) {
       val newEntries = workList.flatMap { n =>
         val outSet = problem.flowGraph
           .succ(n)
+          .iterator
           .map(in)
           .reduceOption((x, y) => problem.meet(x, y))
           .getOrElse(problem.empty)

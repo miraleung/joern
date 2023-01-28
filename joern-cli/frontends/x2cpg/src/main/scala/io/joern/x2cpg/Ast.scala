@@ -2,7 +2,21 @@ package io.joern.x2cpg
 
 import io.shiftleft.codepropertygraph.generated.EdgeTypes
 import io.shiftleft.codepropertygraph.generated.nodes.AstNode.PropertyDefaults
-import io.shiftleft.codepropertygraph.generated.nodes.{AstNodeNew, ExpressionNew, NewNode}
+import io.shiftleft.codepropertygraph.generated.nodes.{
+  AstNodeNew,
+  ExpressionNew,
+  NewBlock,
+  NewCall,
+  NewControlStructure,
+  NewFieldIdentifier,
+  NewIdentifier,
+  NewLiteral,
+  NewMethodRef,
+  NewNode,
+  NewReturn,
+  NewTypeRef,
+  NewUnknown
+}
 import overflowdb.BatchedUpdate.DiffGraphBuilder
 
 case class AstEdge(src: NewNode, dst: NewNode)
@@ -64,7 +78,9 @@ object Ast {
 }
 
 case class Ast(
-  nodes: collection.Seq[NewNode],
+  nodes: collection.Seq[
+    NewNode
+  ], // technically this should be a Seq[AstNewNode], but we also use it for non-ast nodes like Binding...
   edges: collection.Seq[AstEdge] = Vector.empty,
   conditionEdges: collection.Seq[AstEdge] = Vector.empty,
   refEdges: collection.Seq[AstEdge] = Vector.empty,
@@ -146,6 +162,28 @@ case class Ast(
     this.copy(argEdges = argEdges ++ dsts.map(AstEdge(src, _)))
   }
 
+  def withArgEdges(src: NewNode, dsts: Seq[NewNode], argIndexStart: Int): Ast = {
+    var index = argIndexStart
+    this.copy(argEdges = argEdges ++ dsts.map { dst =>
+      addArgumentIndex(dst, index)
+      index += 1
+      AstEdge(src, dst)
+    })
+  }
+
+  private def addArgumentIndex(node: NewNode, argIndex: Int): Unit = node match {
+    case n: NewBlock            => n.argumentIndex = argIndex
+    case n: NewCall             => n.argumentIndex = argIndex
+    case n: NewFieldIdentifier  => n.argumentIndex = argIndex
+    case n: NewIdentifier       => n.argumentIndex = argIndex
+    case n: NewMethodRef        => n.argumentIndex = argIndex
+    case n: NewTypeRef          => n.argumentIndex = argIndex
+    case n: NewUnknown          => n.argumentIndex = argIndex
+    case n: NewControlStructure => n.argumentIndex = argIndex
+    case n: NewLiteral          => n.argumentIndex = argIndex
+    case n: NewReturn           => n.argumentIndex = argIndex
+  }
+
   def withConditionEdges(src: NewNode, dsts: List[NewNode]): Ast = {
     this.copy(conditionEdges = conditionEdges ++ dsts.map(AstEdge(src, _)))
   }
@@ -183,7 +221,7 @@ case class Ast(
 
     val oldToNew = astChildren.zip(newChildren).map { case (old, n) => old -> n.root.get }.toMap
     def newIfExists(x: NewNode) = {
-      oldToNew.get(x).getOrElse(x)
+      oldToNew.getOrElse(x, x)
     }
 
     val newArgEdges       = argEdges.filter(_.src == node).map(x => AstEdge(newNode, newIfExists(x.dst)))

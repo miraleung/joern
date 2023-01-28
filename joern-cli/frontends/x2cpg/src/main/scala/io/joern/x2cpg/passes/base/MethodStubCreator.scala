@@ -1,40 +1,44 @@
 package io.joern.x2cpg.passes.base
 
+import io.joern.x2cpg.Defines
 import io.shiftleft.codepropertygraph.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes._
-import io.shiftleft.codepropertygraph.generated.{EdgeTypes, EvaluationStrategies, NodeTypes}
-import io.shiftleft.passes.SimpleCpgPass
+import io.shiftleft.codepropertygraph.generated.{DispatchTypes, EdgeTypes, EvaluationStrategies, NodeTypes}
+import io.shiftleft.passes.CpgPass
 import io.shiftleft.semanticcpg.language._
 import overflowdb.BatchedUpdate
 
 import scala.collection.mutable
 import scala.util.Try
 
-case class NameAndSignature(name: String, signature: String, fullName: String)
+case class CallSummary(name: String, signature: String, fullName: String, dispatchType: String)
 
 /** This pass has no other pass as prerequisite.
   */
-class MethodStubCreator(cpg: Cpg) extends SimpleCpgPass(cpg) {
+class MethodStubCreator(cpg: Cpg) extends CpgPass(cpg) {
 
   // Since the method fullNames for fuzzyc are not unique, we do not have
   // a 1to1 relation and may overwrite some values. This is ok for now.
   private val methodFullNameToNode   = mutable.LinkedHashMap[String, Method]()
-  private val methodToParameterCount = mutable.LinkedHashMap[NameAndSignature, Int]()
+  private val methodToParameterCount = mutable.LinkedHashMap[CallSummary, Int]()
 
   override def run(dstGraph: BatchedUpdate.DiffGraphBuilder): Unit = {
     for (method <- cpg.method) {
       methodFullNameToNode.put(method.fullName, method)
     }
 
-    for (call <- cpg.call) {
-      methodToParameterCount.put(NameAndSignature(call.name, call.signature, call.methodFullName), call.argument.size)
+    for (call <- cpg.call if call.methodFullName != Defines.DynamicCallUnknownFallName) {
+      methodToParameterCount.put(
+        CallSummary(call.name, call.signature, call.methodFullName, call.dispatchType),
+        call.argument.size
+      )
     }
 
     for (
-      (NameAndSignature(name, signature, fullName), parameterCount) <- methodToParameterCount
+      (CallSummary(name, signature, fullName, dispatchType), parameterCount) <- methodToParameterCount
       if !methodFullNameToNode.contains(fullName)
     ) {
-      createMethodStub(name, fullName, signature, parameterCount, dstGraph)
+      createMethodStub(name, fullName, signature, dispatchType, parameterCount, dstGraph)
     }
   }
 
@@ -63,6 +67,7 @@ class MethodStubCreator(cpg: Cpg) extends SimpleCpgPass(cpg) {
     name: String,
     fullName: String,
     signature: String,
+    dispatchType: String,
     parameterCount: Int,
     dstGraph: DiffGraphBuilder
   ): NewMethod = {
@@ -80,7 +85,14 @@ class MethodStubCreator(cpg: Cpg) extends SimpleCpgPass(cpg) {
 
     dstGraph.addNode(methodNode)
 
-    (1 to parameterCount).foreach { parameterOrder =>
+    val firstParameterIndex = dispatchType match {
+      case DispatchTypes.DYNAMIC_DISPATCH =>
+        0
+      case _ =>
+        1
+    }
+
+    (firstParameterIndex to parameterCount).foreach { parameterOrder =>
       val nameAndCode = s"p$parameterOrder"
       val param = NewMethodParameterIn()
         .code(nameAndCode)
@@ -93,14 +105,6 @@ class MethodStubCreator(cpg: Cpg) extends SimpleCpgPass(cpg) {
       dstGraph.addEdge(methodNode, param, EdgeTypes.AST)
     }
 
-    val methodReturn = NewMethodReturn()
-      .code("RET")
-      .evaluationStrategy(EvaluationStrategies.BY_VALUE)
-      .typeFullName("ANY")
-
-    dstGraph.addNode(methodReturn)
-    dstGraph.addEdge(methodNode, methodReturn, EdgeTypes.AST)
-
     val blockNode = NewBlock()
       .order(1)
       .argumentIndex(1)
@@ -108,6 +112,15 @@ class MethodStubCreator(cpg: Cpg) extends SimpleCpgPass(cpg) {
 
     dstGraph.addNode(blockNode)
     dstGraph.addEdge(methodNode, blockNode, EdgeTypes.AST)
+
+    val methodReturn = NewMethodReturn()
+      .order(2)
+      .code("RET")
+      .evaluationStrategy(EvaluationStrategies.BY_VALUE)
+      .typeFullName("ANY")
+
+    dstGraph.addNode(methodReturn)
+    dstGraph.addEdge(methodNode, methodReturn, EdgeTypes.AST)
 
     methodNode
   }

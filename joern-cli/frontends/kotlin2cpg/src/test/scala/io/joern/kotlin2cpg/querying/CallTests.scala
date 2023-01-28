@@ -7,10 +7,10 @@ import io.shiftleft.semanticcpg.language._
 
 class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
-  implicit val resolver = NoResolve
+  implicit val resolver: ICallResolver = NoResolve
 
   "CPG for code with two functions with the same name, but different params" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo(x: Int, y: Int): Int {
@@ -93,7 +93,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a class declaration " should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class Foo {
@@ -111,25 +111,25 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
         |""".stripMargin)
 
     "should contain a CALL node for `Foo()` with the correct properties set" in {
-      val List(p) = cpg.call.methodFullName(".*init.*").l
-      p.methodFullName shouldBe "mypkg.Foo.<init>:void()"
-      p.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
-      p.signature shouldBe "void()"
-      p.code shouldBe "Foo()"
-      p.columnNumber shouldBe Some(10)
-      p.lineNumber shouldBe Some(12)
+      val List(c) = cpg.call.methodFullName(".*init.*").l
+      c.methodFullName shouldBe "mypkg.Foo.<init>:void()"
+      c.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
+      c.signature shouldBe "void()"
+      c.code shouldBe "Foo()"
+      c.columnNumber shouldBe Some(6)
+      c.lineNumber shouldBe Some(12)
     }
 
     "should contain a CALL node for `add1` with the correct props set" in {
-      val List(p) = cpg.call("add1").l
-      p.argument.size shouldBe 3
-      p.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
-      p.code shouldBe "x.add1(argc, \"AMESSAGE\")"
-      p.columnNumber shouldBe Some(10)
-      p.lineNumber shouldBe Some(13)
-      p.methodFullName shouldBe "mypkg.Foo.add1:int(int,java.lang.String)"
-      p.signature shouldBe "int(int,java.lang.String)"
-      p.typeFullName shouldBe "int"
+      val List(c) = cpg.call("add1").l
+      c.argument.size shouldBe 3
+      c.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
+      c.code shouldBe "x.add1(argc, \"AMESSAGE\")"
+      c.columnNumber shouldBe Some(10)
+      c.lineNumber shouldBe Some(13)
+      c.methodFullName shouldBe "mypkg.Foo.add1:int(int,java.lang.String)"
+      c.signature shouldBe "int(int,java.lang.String)"
+      c.typeFullName shouldBe "int"
 
       val List(firstArg, secondArg, thirdArg) = cpg.call("add1").argument.l
       firstArg.code shouldBe "x"
@@ -150,7 +150,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a call to an implicitly imported stdlib fn " should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun doSome(x: String) {
@@ -176,7 +176,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with invocation of extension function from stdlib" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun main() {
@@ -194,7 +194,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a simple method call to decl of Java's stdlib" should {
-    lazy val cpg = code("""
+    val cpg = code("""
       |package mypkg
       |
       |fun foo(x: String): Int {
@@ -213,7 +213,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a simple call to class from Java's stdlib imported with _as_" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import java.io.File as MyFile
@@ -233,7 +233,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a simple call with unknown identifier imported via _as_" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import no.such.CaseClass as MyCaseClass
@@ -267,7 +267,7 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with call which has parenthesized expression as receiver" should {
-    lazy val cpg = code("""
+    val cpg = code("""
       |package mypkg
       |
       |fun main() {
@@ -283,4 +283,40 @@ class CallTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
       c.methodFullName shouldBe "kotlin.Int.toFloat:float()"
     }
   }
+
+  "CPG for code with call to ctor using named arguments" should {
+    val cpg = code("""
+      |package no.such.pkg
+      |class Person(val firstName: String, val lastName: String)
+      |fun doSomething(x: String, y: String) {
+      |    val p = Person(lastName = y, firstName = x)
+      |    println(p.firstName)
+      |    println(p.lastName)
+      |}
+      |""".stripMargin)
+
+    "should contain a CALL node with arguments that have the argument name set" in {
+      val List(c) = cpg.call.code("Person.*").l
+      c.argument(1).argumentName shouldBe Some("lastName")
+      c.argument(2).argumentName shouldBe Some("firstName")
+    }
+  }
+
+  "CPG for code with call with named arguments of user-defined fn" should {
+    val cpg = code("""
+       |package no.such.pkg
+       |fun printNextLineRm(file: String, line: String) {
+       |    println("file: $file")
+       |    println("line: $line")
+       |}
+       |fun doSomething() = printNextLineRm(line = "MD_Update(&m,buf,j);", file = "rand_lcl.h")
+       |""".stripMargin)
+
+    "should contain a CALL node with arguments that have the argument name set" in {
+      val List(c) = cpg.call.code("printNextLineRm.*").l
+      c.argument(1).argumentName shouldBe Some("line")
+      c.argument(2).argumentName shouldBe Some("file")
+    }
+  }
+
 }

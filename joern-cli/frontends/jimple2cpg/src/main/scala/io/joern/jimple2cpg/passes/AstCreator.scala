@@ -2,6 +2,7 @@ package io.joern.jimple2cpg.passes
 
 import io.joern.x2cpg.Ast.storeInDiffGraph
 import io.joern.x2cpg.datastructures.Global
+import io.joern.x2cpg.utils.NodeBuilders
 import io.joern.x2cpg.{Ast, AstCreatorBase}
 import io.shiftleft.codepropertygraph.generated._
 import io.shiftleft.codepropertygraph.generated.nodes._
@@ -11,6 +12,7 @@ import soot.jimple._
 import soot.tagkit._
 import soot.{Local => _, _}
 
+import scala.collection.immutable.HashSet
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.CollectionHasAsScala
@@ -23,6 +25,8 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
   private val logger         = LoggerFactory.getLogger(classOf[AstCreationPass])
   private val unitToAsts     = mutable.HashMap[soot.Unit, Seq[Ast]]()
   private val controlTargets = mutable.HashMap[Seq[Ast], soot.Unit]()
+  // There are many, but the popular ones should do https://en.wikipedia.org/wiki/List_of_JVM_languages
+  private val JVM_LANGS = HashSet("scala", "clojure", "groovy", "kotlin", "jython", "jruby")
 
   /** Add `typeName` to a global map and return it. The map is later passed to a pass that creates TYPE nodes for each
     * key in the map.
@@ -183,7 +187,22 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
       }
     } catch {
       case e: RuntimeException =>
-        logger.warn(s"Unexpected exception while parsing method body! Will stub the method ${methodNode.fullName}", e)
+        // Use a few heuristics to determine if this is not built with the JDK
+        val nonJavaLibs = cls.getInterfaces.asScala.map(_.getPackageName).filter(JVM_LANGS.contains).toSet
+        if (nonJavaLibs.nonEmpty || cls.getMethods.asScala.exists(_.getName.endsWith("$"))) {
+          val errMsg = "The bytecode for this method suggests it is built with a non-Java JVM language. " +
+            "Soot requires including the specific language's SDK in the analysis to create the method body for " +
+            s"'${methodNode.fullName}' correctly."
+          logger.warn(
+            if (nonJavaLibs.nonEmpty) s"$errMsg. Language(s) detected: ${nonJavaLibs.mkString(",")}."
+            else errMsg
+          )
+        } else {
+          logger.warn(
+            s"Unexpected runtime exception while parsing method body! Will stub the method '${methodNode.fullName}''",
+            e
+          )
+        }
         Ast(methodNode)
           .withChildren(astsForModifiers(methodDeclaration))
           .withChildren(astsForMethodTags(methodDeclaration))
@@ -252,7 +271,7 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
 
   private def astsForAnnotations(annotation: AnnotationTag, order: Int, methodDeclaration: AbstractHost): Ast = {
     val annoType = registerType(parseAsmType(annotation.getType))
-    val name     = if (annoType.contains('.')) annoType.substring(annoType.indexOf('.'), annoType.length) else annoType
+    val name     = annoType.split('.').last
     val elementNodes = withOrder(annotation.getElems.asScala) { case (a, order) =>
       astForAnnotationElement(a, order, methodDeclaration)
     }
@@ -1061,12 +1080,9 @@ class AstCreator(filename: String, cls: SootClass, global: Global) extends AstCr
 
   private def astForMethodReturn(methodDeclaration: SootMethod): Ast = {
     val typeFullName = registerType(methodDeclaration.getReturnType.toQuotedString)
-    val methodReturnNode =
-      NewMethodReturn()
-        .order(methodDeclaration.getParameterCount + 2)
-        .typeFullName(typeFullName)
-        .code(typeFullName)
-        .lineNumber(line(methodDeclaration))
+    val methodReturnNode = NodeBuilders
+      .methodReturnNode(typeFullName, None, line(methodDeclaration), None)
+      .order(methodDeclaration.getParameterCount + 2)
     Ast(methodReturnNode)
   }
 
@@ -1154,7 +1170,7 @@ object AstCreator {
 
   def parseAsmType(signature: String): String = {
     val sigArr = signature.toCharArray
-    val sb     = new StringBuilder()
+    val sb     = new mutable.StringBuilder()
     sigArr.toSeq.foreach { (c: Char) =>
       if (c == ';') {
         val prefix = sb

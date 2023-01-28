@@ -16,15 +16,15 @@ object DumpAst {
 }
 
 class DumpAst(options: AstDumpOptions) extends LayerCreator {
-  override val overlayName: String  = DumpAst.overlayName
-  override val description: String  = DumpAst.description
-  override val modifiesCpg: Boolean = false
+  override val overlayName: String       = DumpAst.overlayName
+  override val description: String       = DumpAst.description
+  override val storeOverlayName: Boolean = false
 
   override def create(context: LayerCreatorContext, storeUndoInfo: Boolean): Unit = {
     val cpg = context.cpg
     cpg.method.zipWithIndex.foreach { case (method, i) =>
       val str = method.dotAst.head
-      (File(options.outDir) / s"${i}-ast.dot").write(str)
+      (File(options.outDir) / s"$i-ast.dot").write(str)
     }
   }
 

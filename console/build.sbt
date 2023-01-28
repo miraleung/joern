@@ -5,15 +5,17 @@ enablePlugins(JavaAppPackaging)
 val ScoptVersion          = "4.0.1"
 val BetterFilesVersion    = "3.9.1"
 val CaskVersion           = "0.8.3"
-val CirceVersion          = "0.14.2"
-val AmmoniteVersion       = "2.5.3"
+val CirceVersion          = "0.14.3"
+val AmmoniteVersion       = "2.5.6"
 val ZeroturnaroundVersion = "1.15"
 
 dependsOn(
   Projects.semanticcpg,
   Projects.macros,
-  Projects.c2cpg      % Test,
-  Projects.x2cpg      % "compile->compile;test->test"
+  Projects.jssrc2cpg,
+  Projects.pysrc2cpg,
+  Projects.c2cpg % Test,
+  Projects.x2cpg % "compile->compile;test->test"
 )
 
 libraryDependencies ++= Seq(
@@ -29,8 +31,6 @@ libraryDependencies ++= Seq(
   "com.lihaoyi"          %% "cask"              % CaskVersion,
   "org.scalatest"        %% "scalatest"         % Versions.scalatest % Test
 )
-
-Test / packageBin / publishArtifact := true
 
 scalacOptions ++= Seq(
   "-deprecation", // Emit warning and location for usages of deprecated APIs.
@@ -71,3 +71,5 @@ scalacOptions ++= Seq(
 
 // would love to reenable, but somehow StorageBackend.scala triggers a strange `[warn] method with a single empty parameter list overrides method without any parameter list` that doesn't make sense to me...
 scalacOptions -= "-Xfatal-warnings"
+
+Test / fork := false

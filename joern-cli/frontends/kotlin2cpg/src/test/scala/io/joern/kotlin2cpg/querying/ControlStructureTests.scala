@@ -7,7 +7,7 @@ import io.shiftleft.semanticcpg.language._
 
 class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   "CPG for code with simple if-else" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo(x: Int): Int {
@@ -24,7 +24,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with `when` statement with assignment in its conditional" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import kotlin.random.Random
@@ -41,14 +41,13 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       cpg.controlStructure.controlStructureType("SWITCH").size shouldBe 1
     }
 
-    "should contain CONTROL_STRUCTURE node with a CALL node to assignment as its condition" in {
-      val List(cs) = cpg.controlStructure.controlStructureType("SWITCH").condition.isCall.l
-      cs.methodFullName shouldBe Operators.assignment
+    "should contain CONTROL_STRUCTURE node with a BLOCK as its condition" in {
+      val List(_: Block) = cpg.controlStructure.controlStructureType("SWITCH").condition.l
     }
   }
 
   "CPG for code with multiple control structures" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |import kotlin.random.Random
         |
         |class ClassFoo {
@@ -113,7 +112,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with simple `for`-statements" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -134,7 +133,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with simple `if`-statement" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun main() {
@@ -158,7 +157,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with try-catch-finally statement" should {
-    lazy val cpg = code("""
+    val cpg = code("""
       |package mypkg
       |
       |fun main() {
@@ -186,7 +185,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with try-catch statement" should {
-    lazy val cpg = code("""
+    val cpg = code("""
       |package mypkg
       |
       |fun main() {
@@ -211,7 +210,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with `for-in` loop which has a simple variable loop parameter" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun main() {
@@ -236,7 +235,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       iteratorLocal.typeFullName shouldBe "ANY"
 
       // TODO: add test for the block in here
-      val List(iteratorAssignment: Call) = cpg.call.code("iterator.*itera.*").head.l
+      val iteratorAssignment = cpg.call.code("iterator.*itera.*").head
       iteratorAssignment.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
       iteratorAssignment.name shouldBe Operators.assignment
       iteratorAssignment.methodFullName shouldBe Operators.assignment
@@ -260,7 +259,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       iteratorAssignmentRhsArg.argumentIndex shouldBe 0
       iteratorAssignmentRhsArg.typeFullName shouldBe "java.util.List"
 
-      val List(controlStructure: ControlStructure) = cpg.controlStructure.head.l
+      val controlStructure = cpg.controlStructure.head
       controlStructure.controlStructureType shouldBe ControlStructureTypes.WHILE
       controlStructure.order shouldBe 3
       controlStructure.condition.size shouldBe 1
@@ -320,7 +319,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with `for-in` loop which has a destructuring declaration loop parameter" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |data class AClass(val x: String, val y: Int)
@@ -351,7 +350,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       iteratorLocal.typeFullName shouldBe "ANY"
 
       // TODO: add test for the block in here
-      val List(iteratorAssignment: Call) = cpg.call.code("iterator.*itera.*").head.l
+      val iteratorAssignment = cpg.call.code("iterator.*itera.*").head
       iteratorAssignment.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
       iteratorAssignment.name shouldBe Operators.assignment
       iteratorAssignment.methodFullName shouldBe Operators.assignment
@@ -375,7 +374,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       iteratorAssignmentRhsArg.argumentIndex shouldBe 0
       iteratorAssignmentRhsArg.typeFullName shouldBe "java.util.List"
 
-      val List(controlStructure: ControlStructure) = cpg.controlStructure.head.l
+      val controlStructure = cpg.controlStructure.head
       controlStructure.controlStructureType shouldBe ControlStructureTypes.WHILE
       controlStructure.order shouldBe 3
       controlStructure.condition.size shouldBe 1
@@ -399,25 +398,25 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       dVal2.name shouldBe "dVal2"
       dVal2.typeFullName shouldBe "int"
       tmp.order shouldBe 3
-      tmp.code shouldBe "tmp_3"
-      tmp.name shouldBe "tmp_3"
+      tmp.code shouldBe "tmp_1"
+      tmp.name shouldBe "tmp_1"
       // tmp.typeFullName shouldBe "xxx"
       // TODO: test more here
 
       val List(getNext: Call, component1: Call, component2: Call) =
-        controlStructureSecondChild.astChildren.drop(3).take(3).l
+        controlStructureSecondChild.astChildren.slice(3, 6).l
       getNext.order shouldBe 4
       getNext.methodFullName shouldBe Operators.assignment
       getNext.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
-      getNext.code shouldBe "tmp_3 = iterator_1.next()"
+      getNext.code shouldBe "tmp_1 = iterator_1.next()"
       component1.order shouldBe 5
-      component1.code shouldBe "dVal1 = tmp_3.component1()"
+      component1.code shouldBe "dVal1 = tmp_1.component1()"
       component1.name shouldBe Operators.assignment
       component1.methodFullName shouldBe Operators.assignment
       component1.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
       component1.signature shouldBe ""
       component2.order shouldBe 6
-      component2.code shouldBe "dVal2 = tmp_3.component2()"
+      component2.code shouldBe "dVal2 = tmp_1.component2()"
       component2.name shouldBe Operators.assignment
       component2.methodFullName shouldBe Operators.assignment
       component2.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
@@ -426,8 +425,8 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
       val List(getNextFirstArg: Identifier, getNextSecondArg: Call) = getNext.argument.l
       getNextFirstArg.order shouldBe 1
       getNextFirstArg.argumentIndex shouldBe 1
-      getNextFirstArg.code shouldBe "tmp_3"
-      getNextFirstArg.name shouldBe "tmp_3"
+      getNextFirstArg.code shouldBe "tmp_1"
+      getNextFirstArg.name shouldBe "tmp_1"
       tmp.referencingIdentifiers.id.l.contains(getNextFirstArg.id) shouldBe true
 
       getNextSecondArg.order shouldBe 2
@@ -454,7 +453,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
 
       component1SecondArg.order shouldBe 2
       component1SecondArg.argumentIndex shouldBe 2
-      component1SecondArg.code shouldBe "tmp_3.component1()"
+      component1SecondArg.code shouldBe "tmp_1.component1()"
       component1SecondArg.methodFullName shouldBe "mypkg.AClass.component1:java.lang.String()"
       component1SecondArg.name shouldBe "component1"
       component1SecondArg.signature shouldBe "java.lang.String()"
@@ -472,7 +471,7 @@ class ControlStructureTests extends KotlinCode2CpgFixture(withOssDataflow = fals
 
       component2SecondArg.order shouldBe 2
       component2SecondArg.argumentIndex shouldBe 2
-      component2SecondArg.code shouldBe "tmp_3.component2()"
+      component2SecondArg.code shouldBe "tmp_1.component2()"
       component2SecondArg.methodFullName shouldBe "mypkg.AClass.component2:int()"
       component2SecondArg.name shouldBe "component2"
       component2SecondArg.signature shouldBe "int()"
