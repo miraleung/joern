@@ -70,7 +70,11 @@ class JavaSrc2Cpg extends X2CpgFrontend[Config] {
       javaparserAsts.typesAsts.map(_.compilationUnit).foreach(symbolSolver.inject)
 
       val astCreationPass = new AstCreationPass(javaparserAsts.analysisAsts, config, cpg, symbolSolver)
-      astCreationPass.createAndApply()
+      try {
+        astCreationPass.createAndApply()
+      } catch {
+        case e: RuntimeException => logger.error(s"EXCEPTION in file  ${config.inputPath}!!! ${e.getMessage}")
+      }
       new ConfigFileCreationPass(config.inputPath, cpg).createAndApply()
       new TypeNodePass(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
       new TypeInferencePass(cpg).createAndApply()
