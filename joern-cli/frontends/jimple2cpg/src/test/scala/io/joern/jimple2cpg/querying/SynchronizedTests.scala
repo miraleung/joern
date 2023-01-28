@@ -1,15 +1,12 @@
 package io.joern.jimple2cpg.querying
 
-import io.joern.jimple2cpg.testfixtures.JimpleCodeToCpgFixture
-import io.shiftleft.codepropertygraph.generated.NodeTypes
+import io.joern.jimple2cpg.testfixtures.JimpleCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.nodes._
 import io.shiftleft.semanticcpg.language._
-import overflowdb.traversal.Traversal
 
-class SynchronizedTests extends JimpleCodeToCpgFixture {
+class SynchronizedTests extends JimpleCode2CpgFixture {
 
-  override val code: String =
-    """
+  val cpg = code("""
       |class Foo {
       |  public static synchronized String foo(String s) {
       |    return s;
@@ -23,7 +20,7 @@ class SynchronizedTests extends JimpleCodeToCpgFixture {
       |  }
       |
       |}
-      |""".stripMargin
+      |""".stripMargin)
 
   "it should process a synchronized method the same as a non-synchronized method" in {
     val List(method: Method) = cpg.method.name("foo").l
@@ -31,7 +28,7 @@ class SynchronizedTests extends JimpleCodeToCpgFixture {
     method.astChildren.size shouldBe 7
     val List("STATIC", "PUBLIC", "SYNCHRONIZED") = method.modifier.map(_.modifierType).l
     val List(param)                              = method.parameter.l
-    val List(body)                               = method.block.l
+    val body                                     = method.block
     param.code shouldBe "java.lang.String s"
     body.astChildren.head shouldBe a[Return]
   }

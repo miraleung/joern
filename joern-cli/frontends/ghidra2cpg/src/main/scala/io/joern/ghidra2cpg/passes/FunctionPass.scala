@@ -7,7 +7,8 @@ import ghidra.program.model.pcode.HighFunction
 import ghidra.program.model.scalar.Scalar
 import io.joern.ghidra2cpg._
 import io.joern.ghidra2cpg.processors._
-import io.joern.ghidra2cpg.utils.Nodes._
+import io.joern.ghidra2cpg.utils.Decompiler
+import io.joern.ghidra2cpg.utils.Utils._
 import io.shiftleft.codepropertygraph.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{CfgNodeNew, NewBlock, NewMethod}
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, nodes}
@@ -25,11 +26,11 @@ abstract class FunctionPass(
   decompiler: Decompiler
 ) extends ConcurrentWriterCpgPass[Function](cpg) {
 
-  protected val functionByName = mutable.HashMap[String, Function]()
+  protected val functionByName: mutable.Map[String, Function] = mutable.HashMap[String, Function]()
   for (fn <- functions) {
     val other = functionByName.getOrElseUpdate(fn.getName, fn)
     if (!(other eq fn)) {
-      baseLogger.warn(s"Multiple functions with same name ${fn.getName}, can't disambiguate: ${fn}, ${other}")
+      baseLogger.warn(s"Multiple functions with same name ${fn.getName}, can't disambiguate: $fn, $other")
     }
   }
 
@@ -231,9 +232,10 @@ abstract class FunctionPass(
               case "Scalar" =>
                 val scalar =
                   opObject.asInstanceOf[Scalar].toString(16, false, false, "", "")
+
                 val node = nodes
                   .NewLiteral()
-                  .code(scalar)
+                  .code(s"0x${scalar}")
                   .order(index + 1)
                   .typeFullName(scalar)
                   .lineNumber(Some(instruction.getMinAddress.getOffsetAsBigInteger.intValue))
@@ -244,7 +246,7 @@ abstract class FunctionPass(
                   opObject.asInstanceOf[GenericAddress].toString()
                 val node = nodes
                   .NewLiteral()
-                  .code(genericAddress)
+                  .code(s"0x${genericAddress}")
                   .order(index + 1)
                   .typeFullName(genericAddress)
                   .lineNumber(Some(instruction.getMinAddress.getOffsetAsBigInteger.intValue))

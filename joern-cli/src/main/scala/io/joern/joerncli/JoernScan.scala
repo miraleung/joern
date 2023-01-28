@@ -14,10 +14,12 @@ import io.shiftleft.semanticcpg.layers.{LayerCreator, LayerCreatorContext, Layer
 import org.json4s.native.Serialization
 import org.json4s.{Formats, NoTypeHints}
 
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 object JoernScanConfig {
-  val defaultDbVersion: String = "latest"
+  val defaultDbVersion: String    = "latest"
+  val defaultDumpQueryDestination = "/tmp/querydb.json"
 }
 
 case class JoernScanConfig(
@@ -25,6 +27,7 @@ case class JoernScanConfig(
   overwrite: Boolean = false,
   store: Boolean = false,
   dump: Boolean = false,
+  dumpDestination: String = JoernScanConfig.defaultDumpQueryDestination,
   listQueryNames: Boolean = false,
   updateQueryDb: Boolean = false,
   queryDbVersion: String = JoernScanConfig.defaultDbVersion,
@@ -35,12 +38,21 @@ case class JoernScanConfig(
   listLanguages: Boolean = false
 )
 
-object JoernScan extends App with BridgeBase {
+object JoernScan extends BridgeBase {
 
-  val (scanArgs, frontendArgs) = CpgBasedTool.splitArgs(args)
+  val implementationVersion = getClass.getPackage.getImplementationVersion
+
+  def main(args: Array[String]) = {
+    val (scanArgs, frontendArgs) = CpgBasedTool.splitArgs(args)
+    optionParser.parse(scanArgs, JoernScanConfig()).foreach { config =>
+      run(config, frontendArgs)
+    }
+  }
 
   val optionParser = new scopt.OptionParser[JoernScanConfig]("joern-scan") {
-    head("Creates a code property graph and scans it with queries from installed bundles")
+    head(
+      s"Creates a code property graph and scans it with queries from installed bundles.\nVersion: `$implementationVersion`"
+    )
     help("help")
       .text("Prints this usage text")
 
@@ -58,8 +70,12 @@ object JoernScan extends App with BridgeBase {
       .text("Store graph changes made by scanner")
 
     opt[Unit]("dump")
-      .action((_, c) => c.copy(dump = true))
-      .text("Dump available queries to file")
+      .action((_, c) => c.copy(dump = true, dumpDestination = JoernScanConfig.defaultDumpQueryDestination))
+      .text(s"Dump available queries to a file at `${JoernScanConfig.defaultDumpQueryDestination}`")
+
+    opt[String]("dump-to")
+      .action((x, c) => c.copy(dumpDestination = x, dump = true))
+      .text("Dump available queries to a specific file")
 
     opt[Unit]("list-query-names")
       .action((_, c) => c.copy(listQueryNames = true))
@@ -96,11 +112,9 @@ object JoernScan extends App with BridgeBase {
     note(s"Args specified after the ${CpgBasedTool.ARGS_DELIMITER} separator will be passed to the front-end verbatim")
   }
 
-  optionParser.parse(scanArgs, JoernScanConfig()).foreach(run)
-
-  private def run(config: JoernScanConfig): Unit = {
+  private def run(config: JoernScanConfig, frontendArgs: List[String]): Unit = {
     if (config.dump) {
-      dumpQueriesAsJson()
+      dumpQueriesAsJson(config.dumpDestination)
     } else if (config.listQueryNames) {
       listQueryNames()
     } else if (config.listLanguages) {
@@ -108,16 +122,14 @@ object JoernScan extends App with BridgeBase {
     } else if (config.updateQueryDb) {
       updateQueryDatabase(config.queryDbVersion)
     } else {
-      runScanPlugin(config)
+      runScanPlugin(config, frontendArgs)
     }
   }
 
-  private def dumpQueriesAsJson(): Unit = {
+  private def dumpQueriesAsJson(outFileName: String): Unit = {
     implicit val engineContext: EngineContext = EngineContext(Semantics.empty)
     implicit val formats: AnyRef with Formats = Serialization.formats(NoTypeHints)
     val queryDb                               = new QueryDatabase(new JoernDefaultArgumentProvider(0))
-    // TODO allow specifying file from the outside and make this portable
-    val outFileName = "/tmp/querydb.json"
     better.files
       .File(outFileName)
       .write(Serialization.write(queryDb.allQueries))
@@ -129,13 +141,13 @@ object JoernScan extends App with BridgeBase {
   }
 
   private def listLanguages(): Unit = {
-    val s = new StringBuilder()
+    val s = new mutable.StringBuilder()
     s ++= "Available languages (case insensitive):\n"
     s ++= Languages.ALL.asScala.map(lang => s"- ${lang.toLowerCase}").mkString("\n")
     println(s.toString())
   }
 
-  private def runScanPlugin(config: JoernScanConfig): Unit = {
+  private def runScanPlugin(config: JoernScanConfig, frontendArgs: List[String]): Unit = {
 
     if (config.src == "") {
       println(optionParser.usage)
@@ -193,10 +205,10 @@ object JoernScan extends App with BridgeBase {
     val url = urlForVersion(version)
     println(s"Downloading default query bundle from: $url")
     val r          = requests.get(url)
-    val queryDbZip = (outDir / "querydb.zip")
+    val queryDbZip = outDir / "querydb.zip"
     val absPath    = queryDbZip.path.toAbsolutePath.toString
     queryDbZip.writeBytes(r.bytes.iterator)
-    println(s"Wrote: ${queryDbZip.size} bytes to ${absPath}")
+    println(s"Wrote: ${queryDbZip.size} bytes to $absPath")
     absPath
   }
 
@@ -249,7 +261,7 @@ class Scan(options: ScanOptions)(implicit engineContext: EngineContext) extends 
 
   override def create(context: LayerCreatorContext, storeUndoInfo: Boolean): Unit = {
     val allQueries = getQueriesFromQueryDb(new JoernDefaultArgumentProvider(options.maxCallDepth))
-    if (allQueries.length == 0) {
+    if (allQueries.isEmpty) {
       println("No queries found, you probably forgot to install a query database.")
       return
     }

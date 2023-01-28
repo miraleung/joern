@@ -1,18 +1,115 @@
 package io.joern.javasrc2cpg.querying
 
-import io.joern.javasrc2cpg.testfixtures.{JavaSrcCode2CpgFixture, JavaSrcCodeToCpgFixture}
+import io.joern.javasrc2cpg.testfixtures.JavaSrcCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.ModifierTypes
-import io.shiftleft.codepropertygraph.generated.edges.Ref
 import io.shiftleft.codepropertygraph.generated.nodes.Return
 import io.shiftleft.semanticcpg.language._
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
 import java.io.File
 
-class TypeDeclTests extends JavaSrcCodeToCpgFixture {
+class NewTypeDeclTests extends JavaSrcCode2CpgFixture {
+  "constructors with access modifiers" should {
+    "have correct public modifier" in {
+      val cpg = code("""
+          |class Foo {
+          |  public Foo() {}
+          |}
+          |""".stripMargin)
 
-  override val code: String =
-    """
+      inside(cpg.typeDecl.nameExact("Foo").method.nameExact("<init>").l) { case List(constructor) =>
+        constructor.modifier.modifierType.toSet shouldBe Set(ModifierTypes.PUBLIC, ModifierTypes.CONSTRUCTOR)
+      }
+    }
+
+    "have correct private modifier" in {
+      val cpg = code("""
+          |class Foo {
+          |  private Foo() {}
+          |}
+          |""".stripMargin)
+
+      inside(cpg.typeDecl.nameExact("Foo").method.nameExact("<init>").l) { case List(constructor) =>
+        constructor.modifier.modifierType.toSet shouldBe Set(ModifierTypes.PRIVATE, ModifierTypes.CONSTRUCTOR)
+      }
+    }
+
+    "have correct protected modifier" in {
+      val cpg = code("""
+          |class Foo {
+          |  protected Foo() {}
+          |}
+          |""".stripMargin)
+
+      inside(cpg.typeDecl.nameExact("Foo").method.nameExact("<init>").l) { case List(constructor) =>
+        constructor.modifier.modifierType.toSet shouldBe Set(ModifierTypes.PROTECTED, ModifierTypes.CONSTRUCTOR)
+      }
+    }
+
+    "have correct empty access modifier" in {
+      val cpg = code("""
+          |class Foo {
+          |  Foo() {}
+          |}
+          |""".stripMargin)
+
+      inside(cpg.typeDecl.nameExact("Foo").method.nameExact("<init>").l) { case List(constructor) =>
+        constructor.modifier.modifierType.toSet shouldBe Set(ModifierTypes.CONSTRUCTOR)
+      }
+    }
+  }
+
+  "typedecls extending unresolved types available in imports should have inheritsFrom set" in {
+    val cpg = code("""package io.vrooom.vulnerableapp;
+        |
+        |import android.content.BroadcastReceiver;
+        |import android.content.Context;
+        |import android.content.Intent;
+        |import android.util.Log;
+        |
+        |public class CustomReceiver extends BroadcastReceiver {
+        |    public WriteFileBroadcastReceiver() {}
+        |    @Override
+        |    public void onReceive(Context context, Intent intent) {
+        |    }
+        |}
+        |""".stripMargin)
+    inside(cpg.typeDecl.name("CustomReceiver").inheritsFromTypeFullName.l) { case List(name) =>
+      name shouldBe "android.content.BroadcastReceiver"
+    }
+  }
+
+  "the AST for an interface declaration" should {
+    "not have a default constructor defined" in {
+      val cpg = code("""
+          |interface Foo {
+          |  public void foo();
+          |}
+          |""".stripMargin)
+
+      cpg.typeDecl.name("Foo").method.fullName.l shouldBe List("Foo.foo:void()")
+    }
+
+    "should have correct inheritsFromTypeFullName" in {
+      val cpg = code(
+        """
+          |package a;
+          |public class A {}
+          |""".stripMargin,
+        "a/A.java" // must specify "a/" to make the test pass
+      ).moreCode("""
+          |package a;
+          |public class B extends A {}
+          |""".stripMargin)
+      val typeDecl = cpg.typeDecl("B").head
+      typeDecl.inheritsFromTypeFullName should contain("a.A")
+    }
+  }
+
+}
+class TypeDeclTests extends JavaSrcCode2CpgFixture {
+
+  val cpg = code("""
       | package a.b.c.d;
       | class Bar extends Woo {
       |   int x;
@@ -47,7 +144,7 @@ class TypeDeclTests extends JavaSrcCodeToCpgFixture {
       |
       |   public void enumMethod() {}
       | }
-      | """.stripMargin
+      | """.stripMargin)
 
   "should create a default constructor if no constructor is defined" in {
     val typeFullName = "a.b.c.d.OuterClass$InnerClass$InnerClass2"
@@ -56,8 +153,8 @@ class TypeDeclTests extends JavaSrcCodeToCpgFixture {
     x.method.size shouldBe 1
     val constructor = x.method.head
 
-    constructor.name shouldBe "<init>"
-    constructor.fullName shouldBe s"$typeFullName.<init>:void()"
+    constructor.name shouldBe io.joern.x2cpg.Defines.ConstructorMethodName
+    constructor.fullName shouldBe s"$typeFullName.${io.joern.x2cpg.Defines.ConstructorMethodName}:void()"
     constructor.signature shouldBe "void()"
     constructor.modifier.map(_.modifierType).toList should contain theSameElementsAs List(
       ModifierTypes.CONSTRUCTOR,
@@ -119,7 +216,8 @@ class TypeDeclTests extends JavaSrcCodeToCpgFixture {
           case res => fail(s"Expected method id on interface but got $res")
         }
 
-      case res => fail(s"Expected typeDecl for interface but got $res")
+      case res =>
+        fail(s"Expected typeDecl for interface but got $res")
     }
   }
 

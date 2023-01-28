@@ -3,7 +3,7 @@ package io.joern.kotlin2cpg.validation
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.Operators
 import io.shiftleft.codepropertygraph.generated.edges.Ast
-import io.shiftleft.codepropertygraph.generated.nodes.{ClosureBinding}
+import io.shiftleft.codepropertygraph.generated.nodes.ClosureBinding
 import io.shiftleft.codepropertygraph.generated.DispatchTypes
 import io.shiftleft.semanticcpg.language._
 import overflowdb.traversal.jIteratortoTraversal
@@ -71,14 +71,14 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain IDENTIFIER nodes with more than one incoming AST edge" in {
       cpg.identifier
-        .filter(_.inE.filter { e => e.isInstanceOf[Ast] }.size > 1)
+        .filter(_._astIn.size > 1)
         .code
         .l shouldBe List()
     }
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -98,14 +98,14 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain IDENTIFIER nodes with more than one incoming AST edge" in {
       cpg.identifier
-        .filter(_.inE.filter { e => e.isInstanceOf[Ast] }.size > 1)
+        .filter(_._astIn.size > 1)
         .code
         .l shouldBe List()
     }
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -125,7 +125,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any identifiers without an ast parent" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -191,7 +191,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -213,7 +213,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -235,7 +235,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -255,7 +255,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -276,7 +276,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -303,7 +303,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -330,7 +330,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -362,13 +362,13 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
   }
 
-  "CPG for code with call with lambda inside method definition" should {
+  "CPG for code with call with lambda inside method declaration" should {
     lazy val cpg = code("""
         |package mypkg
         |
@@ -402,7 +402,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -424,7 +424,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -449,7 +449,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -471,7 +471,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should not contain any IDENTIFIER nodes without inbound AST edges" in {
       cpg.identifier
-        .filter(_._astIn.size == 0)
+        .filter(_._astIn.isEmpty)
         .code
         .l shouldBe Seq()
     }
@@ -623,50 +623,25 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     }
   }
 
-  "CPG for code with dynamic dispatch call inside lambda with class name in the receiver" should {
+  "CPG for code with call to `checkNotNull`" should {
     lazy val cpg = code("""
-        |package main
-        |
-        |class BClass {
-        |    val msg = "Hello from B!"
-        |}
-        |
-        |internal object AnObject {
-        |    private var m: BClass? = null
-        |
-        |    fun bClass(): BClass {
-        |        return checkNotNull(m) {
-        |            "You can't access `m` if you don't initialize it!"
-        |        }
-        |    }
-        |
-        |    fun initialize() {
-        |        m = BClass()
-        |    }
+        |fun f1(x: String?) {
+        |    val notNullX = checkNotNull(x) { println("SOMETHING") }
+        |    println(notNullX)
         |}
         |
         |fun main() {
-        |    AnObject.initialize()
-        |    1.let {
-        |        val b = AnObject.bClass()
-        |        print(b.msg)
-        |    }
+        |    f1("SOMETHING")
         |}
-        |
-        |
         |""".stripMargin)
 
     "should not contain any LOCAL nodes with the CLOSURE_BINDING_ID prop set but without corresponding CLOSURE_BINDING node" in {
-      val allClosureBindingIds =
-        cpg.all
-          .collect { case c: ClosureBinding => c }
-          .closureBindingId
-          .l
+      val allClosureBindingIds = cpg.all.collect { case c: ClosureBinding => c }.closureBindingId.l
 
       cpg.local
         .where(_.closureBindingId)
-        .filterNot { l => allClosureBindingIds.contains(l.closureBindingId) }
-        .map { cb => (cb.code, cb.closureBindingId) }
+        .filterNot { l => allClosureBindingIds.contains(l.closureBindingId.get) }
+        .map { cb => (cb.code, cb.closureBindingId, cb.getClass.toString) }
         .l shouldBe List()
     }
   }
@@ -774,6 +749,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
         .fullNameNot(".*<lambda>.*")
         .fullNameNot(".*<init>.*")
         .fullNameNot("<operator>.*")
+        .fullNameNot("<unresolvedNamespace>.*")
         .fullName(".*>.*")
         .fullName
         .l shouldBe List()
@@ -784,6 +760,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
         .methodFullNameNot(".*<lambda>.*")
         .methodFullNameNot(".*<init>.*")
         .methodFullNameNot("<operator>.*")
+        .methodFullNameNot("<unresolvedNamespace>.*")
         .methodFullName(".*>.*")
         .methodFullName
         .l shouldBe List()
@@ -807,7 +784,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should not contain CALL nodes with DYNAMIC_DISPATCH prop set, but without an argument with ARGUMENT_INDEX 0" in {
       cpg.call
         .dispatchTypeExact(DispatchTypes.DYNAMIC_DISPATCH)
-        .filter(_.argument.argumentIndex(0).size == 0)
+        .filter(_.argument.argumentIndex(0).isEmpty)
         .code
         .l shouldBe List()
     }
@@ -836,7 +813,7 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     "should not contain CALL nodes with DYNAMIC_DISPATCH prop set, but without an argument with ARGUMENT_INDEX 0" in {
       cpg.call
         .dispatchTypeExact(DispatchTypes.DYNAMIC_DISPATCH)
-        .filter(_.argument.argumentIndex(0).size == 0)
+        .filter(_.argument.argumentIndex(0).isEmpty)
         .code
         .l shouldBe List()
     }
@@ -876,10 +853,9 @@ class ValidationTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
       val List(bCtorCall) = cpg.call.methodFullName(".*BClass.*init.*").l
       bCtorCall.methodFullName shouldBe bCtor.fullName
 
-      val List(cCtor1, cCtor2)         = cpg.method.fullName(".*CClass.*init.*").l
-      val List(cCtorCall1, cCtorCall2) = cpg.call.methodFullName(".*CClass.*init.*").l
-      cCtorCall1.methodFullName shouldBe cCtor1.fullName
-      cCtorCall2.methodFullName shouldBe cCtor2.fullName
+      val ctorMethods = cpg.method.fullName(".*CClass.*init.*").toSet
+      val ctorCalls   = cpg.call.methodFullName(".*CClass.*init.*").toSet
+      ctorCalls.map(_.methodFullName).subsetOf(ctorMethods.map(_.fullName)) shouldBe true
     }
   }
 

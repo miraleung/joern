@@ -14,7 +14,9 @@ final case class Config(
   withStdlibJarsInClassPath: Boolean = true,
   downloadDependencies: Boolean = false,
   gradleProjectName: Option[String] = None,
-  gradleConfigurationName: Option[String] = None
+  gradleConfigurationName: Option[String] = None,
+  jar4importServiceUrl: Option[String] = None,
+  includeJavaSourceFiles: Boolean = false
 ) extends X2CpgConfig[Config] {
 
   override def withInputPath(inputPath: String): Config =
@@ -43,6 +45,9 @@ private object Frontend {
       opt[Unit]("no-stdlib-jars")
         .text("Do not add local versions of Kotlin stdlib jars to classpath")
         .action((_, c) => c.copy(withStdlibJarsInClassPath = false)),
+      opt[String]("jar4import-url")
+        .text("Set URL of service which fetches necessary dependency jars for import names found in the project")
+        .action((value, c) => c.copy(jar4importServiceUrl = Some(value))),
       opt[Unit]("download-dependencies")
         .text("Download the dependencies of the target project and add them to the classpath")
         .action((_, c) => c.copy(downloadDependencies = true)),
@@ -51,7 +56,10 @@ private object Frontend {
         .action((value, c) => c.copy(gradleProjectName = Some(value))),
       opt[String]("gradle-configuration-name")
         .text("Name of the Gradle configuration used to download dependencies")
-        .action((value, c) => c.copy(gradleConfigurationName = Some(value)))
+        .action((value, c) => c.copy(gradleConfigurationName = Some(value))),
+      opt[Unit]("include-java-sources")
+        .text("Include Java sources in the resulting CPG")
+        .action((_, c) => c.copy(includeJavaSourceFiles = true))
     )
   }
 }

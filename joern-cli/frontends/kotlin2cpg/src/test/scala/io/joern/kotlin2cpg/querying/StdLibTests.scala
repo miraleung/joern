@@ -1,12 +1,12 @@
 package io.joern.kotlin2cpg.querying
 
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
-import io.shiftleft.codepropertygraph.generated.{DispatchTypes}
+import io.shiftleft.codepropertygraph.generated.DispatchTypes
 import io.shiftleft.semanticcpg.language._
 
 class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   "CPG for code with call to `takeIf`" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |  package mypkg
         |
         |  import kotlin.random.Random
@@ -29,13 +29,13 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
       val List(c) = cpg.call.code("x.takeIf.*").l
       c.methodFullName shouldBe "java.lang.Object.takeIf:java.lang.Object(kotlin.Function1)"
       c.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
-      c.signature shouldBe "java.lang.Object(kotlin.Function1)"
+      c.signature shouldBe "java.lang.Object(java.lang.Object)"
       c.typeFullName shouldBe "java.util.UUID"
     }
   }
 
   "CPG for code with a single call to println and a corresponding import" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import kotlin.io.println
@@ -52,7 +52,7 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a single call to println, a corresponding import and a locally defined println method" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun println(baz: String) {
@@ -71,7 +71,7 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a call to static class method of imported class" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -95,7 +95,7 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a chained call to static class method of imported class" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -110,7 +110,7 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with a call to infix fn `to`" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo() {
@@ -134,7 +134,7 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     }
 
     "CPG for code with calls to stdlib's `split`s" should {
-      lazy val cpg = code("""
+      val cpg = code("""
           |package mypkg
           |
           |fun main() {
@@ -153,7 +153,7 @@ class StdLibTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     }
 
     "CPG for code with calls to stdlib's `trim`s" should {
-      lazy val cpg = code("""
+      val cpg = code("""
           |package mypkg
           |
           |fun trimParam(p: String): String {

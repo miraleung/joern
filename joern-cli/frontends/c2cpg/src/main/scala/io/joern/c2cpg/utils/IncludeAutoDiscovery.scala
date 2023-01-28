@@ -44,7 +44,7 @@ object IncludeAutoDiscovery {
     case Some(value) =>
       value
     case None =>
-      isGccAvailable = Some(checkForGcc())
+      isGccAvailable = Option(checkForGcc())
       isGccAvailable.get
   }
 
@@ -54,21 +54,14 @@ object IncludeAutoDiscovery {
     val endIndex =
       if (IS_WIN) output.indexWhere(_.startsWith("End of search list.")) - 1
       else output.indexWhere(_.startsWith("COMPILER_PATH")) - 1
-    output
-      .slice(startIndex, endIndex)
-      .map { p =>
-        Paths.get(p.trim).toRealPath()
-      }
-      .toSet
+    output.slice(startIndex, endIndex).map(p => Paths.get(p.trim).toRealPath()).toSet
   }
 
-  private def discoverPaths(command: String): Set[Path] = {
-    ExternalCommand.run(command) match {
-      case Success(output) => extractPaths(output)
-      case Failure(exception) =>
-        logger.warn(s"Unable to discover system include paths. Running '$command' failed.", exception)
-        Set.empty
-    }
+  private def discoverPaths(command: String): Set[Path] = ExternalCommand.run(command) match {
+    case Success(output) => extractPaths(output)
+    case Failure(exception) =>
+      logger.warn(s"Unable to discover system include paths. Running '$command' failed.", exception)
+      Set.empty
   }
 
   def discoverIncludePathsC(config: Config): Set[Path] = {
@@ -77,10 +70,8 @@ object IncludeAutoDiscovery {
     } else if (config.includePathsAutoDiscovery && systemIncludePathsC.isEmpty && gccAvailable()) {
       val includePathsC = discoverPaths(C_INCLUDE_COMMAND)
       if (includePathsC.nonEmpty) {
-        logger.info(
-          "Using the following C system include paths:" + includePathsC
-            .mkString(System.lineSeparator() + "- ", System.lineSeparator() + "- ", System.lineSeparator())
-        )
+        logger.info(s"Using the following C system include paths:${includePathsC
+            .mkString(s"${System.lineSeparator()}- ", s"${System.lineSeparator()}- ", System.lineSeparator())}")
       }
       systemIncludePathsC = includePathsC
       includePathsC
@@ -95,10 +86,8 @@ object IncludeAutoDiscovery {
     } else if (config.includePathsAutoDiscovery && systemIncludePathsCPP.isEmpty && gccAvailable()) {
       val includePathsCPP = discoverPaths(CPP_INCLUDE_COMMAND)
       if (includePathsCPP.nonEmpty) {
-        logger.info(
-          "Using the following CPP system include paths:" + includePathsCPP
-            .mkString(System.lineSeparator() + "- ", System.lineSeparator() + "- ", System.lineSeparator())
-        )
+        logger.info(s"Using the following CPP system include paths:${includePathsCPP
+            .mkString(s"${System.lineSeparator()}- ", s"${System.lineSeparator()}- ", System.lineSeparator())}")
       }
       systemIncludePathsCPP = includePathsCPP
       includePathsCPP

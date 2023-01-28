@@ -5,7 +5,7 @@ import io.shiftleft.semanticcpg.language._
 
 class DataClassTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   "CPG for code with simple data class" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |data class Result(val p: Int, val q: String)
@@ -22,12 +22,12 @@ class DataClassTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
       firstMethod.name shouldBe "component1"
       firstMethod.fullName shouldBe "mypkg.Result.component1:int()"
       firstMethod.signature shouldBe "int()"
-      firstMethod.block.size shouldBe 1
+      Option(firstMethod.block).isDefined shouldBe true
 
       secondMethod.name shouldBe "component2"
       secondMethod.fullName shouldBe "mypkg.Result.component2:java.lang.String()"
       secondMethod.signature shouldBe "java.lang.String()"
-      secondMethod.block.size shouldBe 1
+      Option(secondMethod.block).isDefined shouldBe true
     }
   }
 }

@@ -80,6 +80,11 @@ class MethodTraversal(val iterableOnce: IterableOnce[Method]) extends AnyVal {
       .repeat(_.in(EdgeTypes.AST))(_.until(_.hasLabel(NodeTypes.TYPE_DECL)))
       .cast[TypeDecl]
 
+  /** The type declaration associated with this method, e.g., the class it is defined in. Alias for 'definingTypeDecl'
+    */
+  @Doc(info = "Type this method is defined in - alias for 'definingTypeDecl'")
+  def typeDecl: Traversal[TypeDecl] = definingTypeDecl
+
   /** The method in which this method is defined
     */
   @Doc(info = "Method this method is defined in")
@@ -107,15 +112,14 @@ class MethodTraversal(val iterableOnce: IterableOnce[Method]) extends AnyVal {
   /** Traverse to external methods, that is, methods not present but only referenced in the CPG.
     */
   @Doc(info = "External methods (called, but no body available)")
-  def external: Traversal[Method] = {
-    traversal.has(Properties.IS_EXTERNAL -> true)
-  }
+  def external: Traversal[Method] =
+    traversal.isExternal(true)
 
   /** Traverse to internal methods, that is, methods for which code is included in this CPG.
     */
   @Doc(info = "Internal methods, i.e., a body is available")
   def internal: Traversal[Method] =
-    traversal.has(Properties.IS_EXTERNAL -> false)
+    traversal.isExternal(false)
 
   /** Traverse to the methods local variables
     */
@@ -157,6 +161,19 @@ class MethodTraversal(val iterableOnce: IterableOnce[Method]) extends AnyVal {
       case _ =>
         // other language frontends always embed their method in a TYPE_DECL
         _.definingTypeDecl.namespace
+    }
+  }
+
+  /** Traverse to namespace block */
+  @Doc(info = "Namespace block this method is declared in")
+  def namespaceBlock: Traversal[NamespaceBlock] = {
+    traversal.choose(_.astParentType) {
+      case NamespaceBlock.Label =>
+        // some language frontends don't have a TYPE_DECL for a METHOD
+        _.astParent.collectAll[NamespaceBlock]
+      case _ =>
+        // other language frontends always embed their method in a TYPE_DECL
+        _.definingTypeDecl.namespaceBlock
     }
   }
 

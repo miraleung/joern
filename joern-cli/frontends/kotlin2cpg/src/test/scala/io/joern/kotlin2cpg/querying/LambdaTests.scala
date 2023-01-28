@@ -4,56 +4,44 @@ import io.joern.kotlin2cpg.Constants
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.{DispatchTypes, EdgeTypes, EvaluationStrategies, ModifierTypes}
 import io.shiftleft.codepropertygraph.generated.edges.{Capture, Ref}
-import io.shiftleft.codepropertygraph.generated.nodes.{Binding, ClosureBinding, MethodRef}
+import io.shiftleft.codepropertygraph.generated.nodes.{Binding, Block, ClosureBinding, MethodRef, Return}
 import io.shiftleft.semanticcpg.language._
 import overflowdb.traversal.jIteratortoTraversal
 
 class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDefaultJars = true) {
   "CPG for code with a simple lambda which captures a method parameter" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |// TODO: test with `fun foo(x: String, y: String): Int {`
-        |fun foo(x: String): Int {
-        |    1.let {
-        |       println(x)
-        |    }
-        |   return 0
-        |}
-        |""".stripMargin)
+    val cpg = code("fun f1(p: String) { 1.let { println(p) } }")
 
     "should contain a single METHOD_REF node with a single CAPTURE edge" in {
       cpg.methodRef.size shouldBe 1
       cpg.methodRef.outE.collectAll[Capture].size shouldBe 1
     }
 
-    "should contain a LOCAL node for the captured `x`" in {
-      val List(l) = cpg.local.nameExact("x").l
+    "should contain a LOCAL node for the captured method parameter" in {
+      val List(l) = cpg.local.nameExact("p").l
       l.typeFullName shouldBe "java.lang.String"
     }
 
-    "should contain a CLOSURE_BINDING node for `x` with the correct props set" in {
+    "should contain a CLOSURE_BINDING node for the captured parameter with the correct props set" in {
       val List(cb) = cpg.all.collectAll[ClosureBinding].l
-      cb.closureOriginalName shouldBe Some("x")
+      cb.closureOriginalName shouldBe Some("p")
       cb.evaluationStrategy shouldBe EvaluationStrategies.BY_REFERENCE
       cb.closureBindingId should not be None
 
       cb.outE.collectAll[Ref].size shouldBe 1
     }
+
+    "should contain a CALL node with the signature of the lambda" in {
+      val List(c) = cpg.call.code("1.let.*").l
+      c.signature shouldBe "java.lang.Object(java.lang.Object)"
+    }
   }
 
   "CPG for code with a simple lambda which captures a local" should {
-    lazy val cpg = code("""
-        |package mypkg
-        |
-        |import kotlin.collections.List
-        |
-        |fun foo(x: String): Int {
-        |    val baz: String = "PLACEHOLDER"
-        |    1.let {
-        |       println(baz)
-        |    }
-        |   return 0
+    val cpg = code("""
+        |fun foo(x: String) {
+        |    val baz: String = "BAZ"
+        |    1.let { println(baz) }
         |}
         |""".stripMargin)
 
@@ -82,7 +70,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with a list iterator lambda" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun foo(x: String): Int {
@@ -146,7 +134,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
       td.isExternal shouldBe false
       td.code shouldBe "LAMBDA_TYPE_DECL"
       td.inheritsFromTypeFullName shouldBe Seq("kotlin.Function1")
-      td.astParent.size shouldBe 1
+      Option(td.astParent).isDefined shouldBe true
 
       val List(bm) = cpg.typeDecl.fullName(".*lambda.*").boundMethod.l
       bm.fullName shouldBe "mypkg.<lambda><f_Test0.kt_no1>:java.lang.Object(java.lang.Object)"
@@ -163,17 +151,11 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with a scope function lambda" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
-        |fun throughTakeIf(x: String): String? {
-        |    val y = x.takeIf { arg -> arg.length > 1}
-        |    return y
-        |}
-        |
-        |fun main() {
-        |    val myVal = throughTakeIf("AVALUE")
-        |    println(myVal)
+        |fun throughTakeIf(x: String) {
+        |  x.takeIf { arg -> arg.length > 1}
         |}
         |""".stripMargin)
 
@@ -205,14 +187,23 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
       c.methodFullName shouldBe "java.lang.Object.takeIf:java.lang.Object(kotlin.Function1)"
       c.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
       c.typeFullName shouldBe "java.lang.String"
-      c.signature shouldBe "java.lang.Object(kotlin.Function1)"
+      c.signature shouldBe "java.lang.Object(java.lang.Object,java.lang.Object)"
+    }
+
+    "should contain a RETURN node around as the last child of the lambda's BLOCK" in {
+      val List(b: Block) = cpg.method.fullName(".*lambda.*").block.l
+      val hasReturnAsLastChild = b.astChildren.last match {
+        case _: Return => true
+        case _         => false
+      }
+      hasReturnAsLastChild shouldBe true
     }
 
     "should contain a TYPE_DECL node for the lambda with the correct props set" in {
       val List(td) = cpg.typeDecl.fullName(".*lambda.*").l
       td.isExternal shouldBe false
       td.code shouldBe "LAMBDA_TYPE_DECL"
-      td.astParent.size shouldBe 1
+      Option(td.astParent).isDefined shouldBe true
 
       val List(bm) = cpg.typeDecl.fullName(".*lambda.*").boundMethod.l
       bm.fullName shouldBe "mypkg.<lambda><f_Test0.kt_no1>:java.lang.Object(java.lang.Object)"
@@ -229,7 +220,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with a lambda mapping values of a collection" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun mappedListWith(p: String): List<String> {
@@ -238,11 +229,6 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
         |          arg + "MAPPED"
         |      }
         |    return mappedCol
-        |}
-        |
-        |fun main() {
-        |  val x = mappedListWith("AVALUE")
-        |  println(x)
         |}
         |""".stripMargin)
 
@@ -301,7 +287,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with destructuring inside lambda" should {
-    lazy val cpg = code("""
+    val cpg = code("""
        |package mypkg
        |
        |fun main(args: Array<String>) {
@@ -316,7 +302,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with a simple lambda which captures a method parameter inside method" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class AClass {
@@ -340,7 +326,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with a simple lambda which captures a method parameter, nested twice" should {
-    lazy val cpg = code("""
+    val cpg = code("""
       |package mypkg
       |
       |fun foo(x: String): Int {
@@ -373,8 +359,8 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
     }
   }
 
-  "CPG for code with call with lambda inside method definition" should {
-    lazy val cpg = code("""
+  "CPG for code with call with lambda inside method declaration" should {
+    val cpg = code("""
         |package mypkg
         |
         |import kotlin.random.Random
@@ -407,7 +393,7 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
   }
 
   "CPG for code with nested lambdas" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun doSomething(p: String): Int {
@@ -418,10 +404,6 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
         |    }
         |    return 0
         |}
-        |
-        |fun main() {
-        |    doSomething("AMESSAGE")
-        |}
         |""".stripMargin)
 
     "should contain a single LOCAL node inside the BLOCK of the first lambda" in {
@@ -430,6 +412,18 @@ class LambdaTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDef
 
     "should contain two LOCAL nodes inside the BLOCK of the second lambda" in {
       cpg.method.fullName(".*lambda.*2.*").block.astChildren.isLocal.size shouldBe 2
+    }
+  }
+
+  "CPG for code with lambda with no statements in its block" should {
+    val cpg = code("""
+        |package mypkg
+        |fun nopnopnopnopnopnopnopnop() {
+        |    1.let { _ -> }
+        |}
+        |""".stripMargin)
+    "contain a METHOD node for the lambda" in {
+      cpg.method.fullName(".*lambda.*").l should not be empty
     }
   }
 }

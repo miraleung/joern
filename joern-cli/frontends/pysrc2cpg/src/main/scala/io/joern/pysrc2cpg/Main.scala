@@ -1,40 +1,32 @@
 package io.joern.pysrc2cpg
 
-import org.rogach.scallop._
+import io.joern.pysrc2cpg.Frontend.cmdLineParser
+import io.joern.x2cpg.X2CpgMain
+import scopt.OParser
 
 import java.nio.file.Paths
 
-class ParsedArguments(arguments: Seq[String]) extends ScallopConf(arguments) {
-  val output = opt[String](default = Some("out.cpg"), short = 'o', descr = "Output file name. Defaults to out.cpg")
-
-  val input = trailArg[String](descr = "Input directory name")
-
-  val venvDir =
-    opt[String](default = Some(".venv"), noshort = true, descr = "Virtual environment directory. Defaults to .venv.")
-  val ignoreVenvDir = opt[Boolean](
-    default = Some(true),
-    noshort = true,
-    descr = "Specifies whether venv-dir is ignored. Default to true."
-  )
-  verify()
+private object Frontend {
+  val cmdLineParser: OParser[Unit, Py2CpgOnFileSystemConfig] = {
+    val builder = OParser.builder[Py2CpgOnFileSystemConfig]
+    import builder._
+    OParser.sequence(
+      programName("pysrc2cpg"),
+      opt[String]("venvDir")
+        // Default is specified in Py2CpgOFileSystemConfig because Scopt is a shit library.
+        .text("Virtual environment directory. Defaults to .venv.")
+        .action((dir, config) => config.copy(venvDir = Paths.get(dir))),
+      opt[Boolean]("ignoreVenvDir")
+        // Default is specified in Py2CpgOFileSystemConfig because Scopt is a shit library.
+        .text("Specifies whether venv-dir is ignored. Default to true.")
+        .action(((value, config) => config.copy(ignoreVenvDir = value)))
+    )
+  }
 }
 
-object Main extends App {
-  val parsedArguments = new ParsedArguments(args.toSeq)
+object NewMain extends X2CpgMain(cmdLineParser, new Py2CpgOnFileSystem())(new Py2CpgOnFileSystemConfig()) {
+  def run(config: Py2CpgOnFileSystemConfig, frontend: Py2CpgOnFileSystem): Unit = {
+    frontend.run(config)
+  }
 
-  val ignoreVenvDir =
-    if (parsedArguments.ignoreVenvDir.toOption.get) {
-      parsedArguments.venvDir.toOption
-    } else {
-      None
-    }
-
-  val py2CpgConfig =
-    new Py2CpgOnFileSystemConfig(
-      Paths.get(parsedArguments.output.toOption.get),
-      Paths.get(parsedArguments.input.toOption.get),
-      ignoreVenvDir.map(Paths.get(_))
-    )
-
-  Py2CpgOnFileSystem.buildCpg(py2CpgConfig)
 }

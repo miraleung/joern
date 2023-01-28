@@ -1,11 +1,12 @@
 package io.joern.kotlin2cpg.querying
 
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
+import io.joern.x2cpg.Defines
 import io.shiftleft.semanticcpg.language._
 
 class TypeAliasTests extends KotlinCode2CpgFixture(withOssDataflow = false, withDefaultJars = true) {
   "CPG for code with simple typealias to Int" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |typealias MyInt = Int
@@ -30,9 +31,9 @@ class TypeAliasTests extends KotlinCode2CpgFixture(withOssDataflow = false, with
   }
 
   // _seemingly_ because adding the springframework jar to the classpath will give the
-  // compiler enough information to detect that there is no recursion in the typealias definition
+  // compiler enough information to detect that there is no recursion in the typealias declaration
   "CPG for code with seemingly-recursive type alias" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |import org.springframework.data.annotation.Id
         |actual typealias Id = Id
@@ -45,12 +46,12 @@ class TypeAliasTests extends KotlinCode2CpgFixture(withOssDataflow = false, with
       x.fullName shouldBe "mypkg.Id"
       x.isExternal shouldBe false
       x.inheritsFromTypeFullName shouldBe List()
-      x.aliasTypeFullName shouldBe Some("codepropertygraph.Unresolved")
+      x.aliasTypeFullName shouldBe Some(Defines.UnresolvedNamespace)
     }
   }
 
   "CPG for code with typealias containing other type alias in its RHS" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |
@@ -82,7 +83,7 @@ class TypeAliasTests extends KotlinCode2CpgFixture(withOssDataflow = false, with
   }
 
   "CPG for code with simple typealias to ListInt" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |typealias Foo = List<Int>
@@ -107,7 +108,7 @@ class TypeAliasTests extends KotlinCode2CpgFixture(withOssDataflow = false, with
   }
 
   "CPG for code with typealias of type from external library" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package org.http4k.core.body
         |
         |import org.http4k.core.Parameters
@@ -123,7 +124,7 @@ class TypeAliasTests extends KotlinCode2CpgFixture(withOssDataflow = false, with
   }
 
   "CPG for code with call to ctor of typealiased user-defined class" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |class AClass(val x: String)

@@ -45,7 +45,7 @@ class TestConsole(workspaceDir: String)
   override def importCode: ImportCode[Project] = new ImportCode(this) {
     override val generatorFactory = new TestCpgGeneratorFactory(config)
 
-    override def c: SourceBasedFrontend = new SourceBasedFrontend("testCFrontend", language = Languages.NEWC) {
+    override def c: SourceBasedFrontend = new CFrontend("testCFrontend") {
       override def cpgGeneratorForLanguage(
         language: String,
         config: FrontendConfig,
@@ -84,6 +84,8 @@ class TestCpgGeneratorFactory(config: ConsoleConfig) extends CpgGeneratorFactory
     }
 
     def isAvailable: Boolean = true
+
+    override def isJvmBased = true
 
   }
 

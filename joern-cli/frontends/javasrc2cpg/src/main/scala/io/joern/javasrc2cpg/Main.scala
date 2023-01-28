@@ -10,7 +10,10 @@ final case class Config(
   inputPath: String = "",
   outputPath: String = X2CpgConfig.defaultOutputPath,
   inferenceJarPaths: Set[String] = Set.empty,
-  skipDependencyDownload: Boolean = false
+  fetchDependencies: Boolean = false,
+  javaFeatureSetVersion: Option[String] = None,
+  delombokJavaHome: Option[String] = None,
+  delombokMode: Option[String] = None
 ) extends X2CpgConfig[Config] {
 
   override def withInputPath(inputPath: String): Config =
@@ -30,9 +33,19 @@ private object Frontend {
       opt[String]("inference-jar-paths")
         .text(s"extra jars used only for type information")
         .action((path, c) => c.copy(inferenceJarPaths = c.inferenceJarPaths + path)),
-      opt[Unit]("skip-dependency-download")
-        .text("don't attempt to download dependency jars for type information")
-        .action((_, c) => c.copy(skipDependencyDownload = true))
+      opt[Unit]("fetch-dependencies")
+        .text("attempt to fetch dependencies jars for extra type information")
+        .action((_, c) => c.copy(fetchDependencies = true)),
+      opt[String]("delombok-java-home")
+        .text("Optional override to set java home used to run Delombok. Java 17 is recommended for the best results.")
+        .action((path, c) => c.copy(delombokJavaHome = Some(path))),
+      opt[String]("delombok-mode")
+        .text("""Specifies how delombok should be executed. Options are
+				| no-delombok => to not run delombok under any circumstances.
+                 | default => run delombok if a lombok dependency is found and analyse delomboked code.
+                 | types-only => to run delombok, but use it for type information only
+                 | run-delombok => to force run delombok and analyse delomboked code.""".stripMargin)
+        .action((mode, c) => c.copy(delombokMode = Some(mode)))
     )
   }
 }

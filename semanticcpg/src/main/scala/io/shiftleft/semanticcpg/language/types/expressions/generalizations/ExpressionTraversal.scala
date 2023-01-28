@@ -1,9 +1,9 @@
 package io.shiftleft.semanticcpg.language.types.expressions.generalizations
 
 import io.shiftleft.codepropertygraph.generated.nodes._
-import io.shiftleft.codepropertygraph.generated.{EdgeTypes, NodeTypes}
+import io.shiftleft.codepropertygraph.generated.EdgeTypes
 import io.shiftleft.semanticcpg.language._
-import overflowdb.traversal._
+import overflowdb.traversal.Traversal
 
 /** An expression (base type)
   */
@@ -33,18 +33,18 @@ class ExpressionTraversal[NodeType <: Expression](val traversal: Traversal[NodeT
   /** Only those expressions which are (direct) arguments of a call
     */
   def isArgument: Traversal[Expression] =
-    traversal.where(_.in(EdgeTypes.ARGUMENT)).cast[Expression]
+    traversal.flatMap(_.isArgument)
 
   /** Traverse to surrounding call
     */
   def inCall: Traversal[Call] =
-    traversal.repeat(_.in(EdgeTypes.ARGUMENT))(_.until(_.hasLabel(NodeTypes.CALL))).cast[Call]
+    traversal.flatMap(_.inCall)
 
   /** Traverse to surrounding call
     */
   @deprecated("Use inCall")
   def call: Traversal[Call] =
-    traversal.repeat(_.in(EdgeTypes.ARGUMENT))(_.until(_.hasLabel(NodeTypes.CALL))).cast[Call]
+    inCall
 
   /** Traverse to related parameter
     */
@@ -64,6 +64,6 @@ class ExpressionTraversal[NodeType <: Expression](val traversal: Traversal[NodeT
   /** Traverse to expression evaluation type
     */
   def typ: Traversal[Type] =
-    traversal.out(EdgeTypes.EVAL_TYPE).cast[Type]
+    traversal.flatMap(_._evalTypeOut).cast[Type]
 
 }

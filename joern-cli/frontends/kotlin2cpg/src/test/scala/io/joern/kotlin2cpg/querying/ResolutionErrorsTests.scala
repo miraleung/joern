@@ -2,12 +2,13 @@ package io.joern.kotlin2cpg.querying
 
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
 import io.joern.kotlin2cpg.types.TypeConstants
+import io.joern.x2cpg.Defines
 import io.shiftleft.codepropertygraph.generated.Operators
 import io.shiftleft.semanticcpg.language._
 
 class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   "CPG for code with QE of receiver for which the type cannot be inferred" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun main() {
@@ -20,13 +21,13 @@ class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = fals
         |""".stripMargin)
 
     "should contain a CALL node with an MFN starting with a placeholder type" in {
-      val List(c) = cpg.call.drop(1).take(1).l
-      c.methodFullName shouldBe TypeConstants.cpgUnresolved + ".flatMap:ANY(ANY)"
+      val List(c) = cpg.call.slice(1, 2).l
+      c.methodFullName shouldBe Defines.UnresolvedNamespace + ".flatMap:ANY(ANY)"
     }
   }
 
   "CPG for code with simple stdlib fns" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import kotlin.collections.HashMap
@@ -55,7 +56,7 @@ class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with stdlib mutable list of items of class without type info available" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import com.intellij.ide.util.projectWizard.importSources.DetectedProjectRoot
@@ -81,7 +82,7 @@ class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with QE expression without type info" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |object AClass {
@@ -112,12 +113,12 @@ class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = fals
 
     "should contain a CALL node with the correct MFN set when type info is not available" in {
       val List(c) = cpg.call.methodFullName(Operators.assignment).where(_.argument(1).code("bar")).argument(2).isCall.l
-      c.methodFullName shouldBe TypeConstants.cpgUnresolved + ".filter:ANY(ANY)"
+      c.methodFullName shouldBe Defines.UnresolvedNamespace + ".filter:ANY(ANY)"
     }
   }
 
   "CPG for code with extension fn defined on unresolvable type " should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import com.intellij.openapi.editor.*
@@ -133,12 +134,12 @@ class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = fals
 
     "should contain a METHOD node with a MFN property starting with `kotlin.Any`" in {
       val List(m) = cpg.method.fullName(".*getFileSize.*").l
-      m.fullName shouldBe "codepropertygraph.Unresolved.getFileSize:int(boolean)"
+      m.fullName shouldBe s"${Defines.UnresolvedNamespace}.getFileSize:int(boolean)"
     }
   }
 
   "CPG for code with extension fn defined on resolvable type with unresolvable subtypes" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import com.intellij.openapi.editor.*
@@ -160,7 +161,7 @@ class ResolutionErrorsTests extends KotlinCode2CpgFixture(withOssDataflow = fals
   }
 
   "CPG for code with `containsKey` call on collection of elements without corresponding imported class" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |import io.no.SuchPackage

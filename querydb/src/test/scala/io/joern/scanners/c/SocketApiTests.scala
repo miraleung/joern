@@ -1,15 +1,9 @@
 package io.joern.scanners.c
 
 import io.joern.suites.CQueryTestSuite
-import io.shiftleft.codepropertygraph.generated.nodes
-import io.joern.console.scan._
 import io.joern.x2cpg.testfixtures.TestCpg
-import io.shiftleft.semanticcpg.language._
-import overflowdb.traversal.iterableToTraversal
 
-class SocketApiTests extends CQueryTestSuite {
-
-  override def queryBundle = SocketApi
+class SocketApiTests extends CQueryTestSuite(SocketApi) {
 
   override val cpg: TestCpg = code("""
       |void return_not_checked(int sockfd, void *buf, size_t len, int flags) {

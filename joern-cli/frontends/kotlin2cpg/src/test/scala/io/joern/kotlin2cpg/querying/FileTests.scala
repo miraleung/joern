@@ -8,8 +8,8 @@ import java.io.File
 
 class FileTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
-  "CPG for code with simple class definition and one method" should {
-    lazy val cpg = code("""
+  "CPG for code with simple class declaration and one method" should {
+    val cpg = code("""
         |package mypkg.bar
         |
         |class Foo {
@@ -38,7 +38,7 @@ class FileTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
         .name(".*.kt".replace("/", s"\\${File.separator}"))
         .method
         .name
-        .toSet shouldBe Set("baz", "<init>", "add")
+        .toSet shouldBe Set("baz", io.joern.x2cpg.Defines.ConstructorMethodName, "add")
     }
 
     "should allow traversing from file to its type declarations" in {

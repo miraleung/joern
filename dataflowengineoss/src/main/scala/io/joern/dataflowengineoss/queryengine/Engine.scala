@@ -1,6 +1,8 @@
 package io.joern.dataflowengineoss.queryengine
 
+import io.joern.dataflowengineoss.DefaultSemantics
 import io.joern.dataflowengineoss.language._
+import io.joern.dataflowengineoss.passes.reachingdef.EdgeValidator
 import io.joern.dataflowengineoss.semanticsloader.{FlowSemantic, Semantics}
 import io.shiftleft.codepropertygraph.generated.nodes._
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, Properties}
@@ -8,78 +10,87 @@ import io.shiftleft.semanticcpg.language._
 import org.slf4j.{Logger, LoggerFactory}
 import overflowdb.Edge
 import overflowdb.traversal.{NodeOps, Traversal}
-
 import java.util.concurrent._
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
-case class ReachableByTask(
-  sink: CfgNode,
-  sources: Set[CfgNode],
-  table: ResultTable,
-  initialPath: Vector[PathElement] = Vector(),
-  callDepth: Int = 0,
-  callSiteStack: mutable.Stack[Call] = mutable.Stack()
-)
-
 /** The data flow engine allows determining paths to a set of sinks from a set of sources. To this end, it solves tasks
   * in parallel, creating and submitting new tasks upon completion of tasks. This class deals only with task scheduling,
-  * while the creation of new tasks from existing tasks is handled by the class `TaskCreator`.
+  * while the creation of new tasks from existing tasks is handled by the class `TaskCreator`, and solving of tasks is
+  * taken care of by the `TaskSolver`.
   */
 class Engine(context: EngineContext) {
 
   import Engine._
 
   private val logger: Logger                   = LoggerFactory.getLogger(this.getClass)
-  private var numberOfTasksRunning: Int        = 0
   private val executorService: ExecutorService = Executors.newWorkStealingPool()
-  private val completionService = new ExecutorCompletionService[Vector[ReachableByResult]](executorService)
+  private val completionService =
+    new ExecutorCompletionService[TaskSummary](executorService)
 
-  def shutdown(): Unit = {
-    executorService.shutdown()
-  }
+  /** All results of tasks are accumulated in this table. At the end of the analysis, we extract results from the table
+    * and return them.
+    */
+  private val mainResultTable: mutable.Map[TaskFingerprint, List[TableEntry]] = mutable.Map()
+  private var numberOfTasksRunning: Int                                       = 0
+  private val started: mutable.HashSet[TaskFingerprint]                       = mutable.HashSet[TaskFingerprint]()
+  private val held: mutable.Buffer[ReachableByTask]                           = mutable.Buffer()
 
   /** Determine flows from sources to sinks by exploring the graph backwards from sinks to sources. Returns the list of
     * results along with a ResultTable, a cache of known paths created during the analysis.
     */
-  def backwards(sinks: List[CfgNode], sources: List[CfgNode]): List[ReachableByResult] = {
+  def backwards(sinks: List[CfgNode], sources: List[CfgNode]): List[TableEntry] = {
     if (sources.isEmpty) {
       logger.info("Attempting to determine flows from empty list of sources.")
     }
     if (sinks.isEmpty) {
       logger.info("Attempting to determine flows to empty list of sinks.")
     }
+    reset()
     val sourcesSet = sources.toSet
-    val tasks      = createOneTaskPerSink(sourcesSet, sinks)
-    solveTasks(tasks, sourcesSet)
+    val tasks      = createOneTaskPerSink(sinks)
+    solveTasks(tasks, sourcesSet, sinks)
   }
 
-  /** Create one task per sink where each task has its own result table.
-    */
-  private def createOneTaskPerSink(sourcesSet: Set[CfgNode], sinks: List[CfgNode]) = {
+  private def reset(): Unit = {
+    mainResultTable.clear()
+    numberOfTasksRunning = 0
+    started.clear()
+    held.clear()
+  }
 
-    /** Create a new result table. If `context.config.initialTable` is set, this initial table is cloned and returned.
-      */
-    def newResultTable() =
-      context.config.initialTable.map(x => new ResultTable(x.table.clone)).getOrElse(new ResultTable)
-    sinks.map(sink => ReachableByTask(sink, sourcesSet, newResultTable()))
+  private def createOneTaskPerSink(sinks: List[CfgNode]) = {
+    sinks.map(sink => ReachableByTask(List(TaskFingerprint(sink, List(), 0)), Vector()))
   }
 
   /** Submit tasks to a worker pool, solving them in parallel. Upon receiving results for a task, new tasks are
     * submitted accordingly. Once no more tasks can be created, the list of results is returned.
     */
-  private def solveTasks(tasks: List[ReachableByTask], sources: Set[CfgNode]): List[ReachableByResult] = {
-    var result = List[ReachableByResult]()
+  private def solveTasks(
+    tasks: List[ReachableByTask],
+    sources: Set[CfgNode],
+    sinks: List[CfgNode]
+  ): List[TableEntry] = {
 
-    /** For a list of results, determine partial and complete results. Store complete results and derive and submit
-      * tasks from partial results.
+    /** Solving a task produces a list of summaries. The following method is called for each of these summaries. It
+      * submits new tasks and adds results to the result table.
       */
-    def handleResultsOfTask(resultsOfTask: Vector[ReachableByResult]): Unit = {
-      val (partial, complete) = resultsOfTask.partition(_.partial)
-      result ++= complete
-      val newTasks = new TaskCreator(sources).createFromResults(partial)
-      newTasks.foreach(submitTask)
+    def handleSummary(taskSummary: TaskSummary): Unit = {
+      val newTasks = taskSummary.followupTasks
+      submitTasks(newTasks, sources)
+      val newResults = taskSummary.tableEntries
+      addEntriesToMainTable(newResults)
+    }
+
+    def addEntriesToMainTable(entries: Vector[(TaskFingerprint, TableEntry)]): Unit = {
+      entries.groupBy(_._1).foreach { case (fingerprint, entryList) =>
+        val entries = entryList.map(_._2).toList
+        mainResultTable.updateWith(fingerprint) {
+          case Some(list) => Some(list ++ entries)
+          case None       => Some(entries)
+        }
+      }
     }
 
     def runUntilAllTasksAreSolved(): Unit = {
@@ -89,7 +100,7 @@ class Engine(context: EngineContext) {
         } match {
           case Success(resultsOfTask) =>
             numberOfTasksRunning -= 1
-            handleResultsOfTask(resultsOfTask)
+            handleSummary(resultsOfTask)
           case Failure(exception) =>
             numberOfTasksRunning -= 1
             logger.warn(s"SolveTask failed with exception:", exception)
@@ -98,16 +109,79 @@ class Engine(context: EngineContext) {
       }
     }
 
-    tasks.foreach(submitTask)
+    submitTasks(tasks.toVector, sources)
+    val startTimeSec: Long = System.currentTimeMillis / 1000
     runUntilAllTasksAreSolved()
-    deduplicate(result.toVector).toList
+    val taskFinishTimeSec: Long = System.currentTimeMillis / 1000
+    logger.debug(
+      "Time measurement -----> Task processing done in " +
+        (taskFinishTimeSec - startTimeSec) + " seconds"
+    )
+    new HeldTaskCompletion(held.toList, mainResultTable).completeHeldTasks()
+    val dedupResult          = deduplicateFinal(extractResultsFromTable(sinks))
+    val allDoneTimeSec: Long = System.currentTimeMillis / 1000
+
+    logger.debug(
+      "Time measurement -----> Task processing: " +
+        (taskFinishTimeSec - startTimeSec) + " seconds" +
+        ", Deduplication: " + (allDoneTimeSec - taskFinishTimeSec) +
+        ", Deduped results size: " + dedupResult.length
+    )
+    dedupResult
   }
 
-  private def submitTask(task: ReachableByTask): Unit = {
-    numberOfTasksRunning += 1
-    completionService.submit(
-      new TaskSolver(if (context.config.shareCacheBetweenTasks) task else task.copy(table = new ResultTable), context)
-    )
+  private def submitTasks(tasks: Vector[ReachableByTask], sources: Set[CfgNode]): Unit = {
+    tasks.foreach { task =>
+      if (started.contains(task.fingerprint)) {
+        held ++= Vector(task)
+      } else {
+        started.add(task.fingerprint)
+        numberOfTasksRunning += 1
+        completionService.submit(new TaskSolver(task, context, sources))
+      }
+    }
+  }
+
+  private def extractResultsFromTable(sinks: List[CfgNode]): List[TableEntry] = {
+    sinks.flatMap { sink =>
+      mainResultTable.get(TaskFingerprint(sink, List(), 0)) match {
+        case Some(results) => results
+        case _             => Vector()
+      }
+    }
+  }
+
+  private def deduplicateFinal(list: List[TableEntry]): List[TableEntry] = {
+    list
+      .groupBy { result =>
+        val head = result.path.head.node
+        val last = result.path.last.node
+        (head, last)
+      }
+      .map { case (_, list) =>
+        val lenIdPathPairs = list.map(x => (x.path.length, x))
+        val withMaxLength = (lenIdPathPairs.sortBy(_._1).reverse match {
+          case Nil    => Nil
+          case h :: t => h :: t.takeWhile(y => y._1 == h._1)
+        }).map(_._2)
+
+        if (withMaxLength.length == 1) {
+          withMaxLength.head
+        } else {
+          withMaxLength.minBy { x =>
+            x.path
+              .map(x => (x.node.id, x.callSiteStack.map(_.id), x.visible, x.isOutputArg, x.outEdgeLabel).toString)
+              .mkString("-")
+          }
+        }
+      }
+      .toList
+  }
+
+  /** This must be called when one is done using the engine.
+    */
+  def shutdown(): Unit = {
+    executorService.shutdown()
   }
 
 }
@@ -122,21 +196,49 @@ object Engine {
     * @param path
     *   the path that has been expanded to reach the `curNode`
     */
-  def expandIn(curNode: CfgNode, path: Vector[PathElement])(implicit semantics: Semantics): Vector[PathElement] = {
+  def expandIn(curNode: CfgNode, path: Vector[PathElement], callSiteStack: List[Call] = List())(implicit
+    semantics: Semantics
+  ): Vector[PathElement] = {
+    ddgInE(curNode, path, callSiteStack).flatMap(x => elemForEdge(x, callSiteStack))
+  }
+
+  private def elemForEdge(e: Edge, callSiteStack: List[Call] = List())(implicit
+    semantics: Semantics
+  ): Option[PathElement] = {
+    val curNode  = e.inNode().asInstanceOf[CfgNode]
+    val parNode  = e.outNode().asInstanceOf[CfgNode]
+    val outLabel = Some(e.property(Properties.VARIABLE)).getOrElse("")
+
+    if (!EdgeValidator.isValidEdge(curNode, parNode)) {
+      return None
+    }
+
     curNode match {
-      case argument: Expression =>
-        val (arguments, nonArguments) = ddgInE(curNode, path).partition(_.outNode().isInstanceOf[Expression])
-        val elemsForArguments = arguments.flatMap { e =>
-          elemForArgument(e, argument)
+      case childNode: Expression =>
+        parNode match {
+          case parentNode: Expression =>
+            val parentNodeCall = parentNode.inCall.l
+            val sameCallSite   = parentNode.inCall.l == childNode.start.inCall.l
+            val visible = if (sameCallSite) {
+              val semanticExists         = parentNode.semanticsForCallByArg.nonEmpty
+              val internalMethodsForCall = parentNodeCall.flatMap(methodsForCall).to(Traversal).internal
+              (semanticExists && parentNode.isDefined) || internalMethodsForCall.isEmpty
+            } else {
+              parentNode.isDefined
+            }
+            val isOutputArg = isOutputArgOfInternalMethod(parentNode)
+            Some(PathElement(parentNode, callSiteStack, visible, isOutputArg, outEdgeLabel = outLabel))
+          case parentNode if parentNode != null =>
+            Some(PathElement(parentNode, callSiteStack, outEdgeLabel = outLabel))
+          case null =>
+            None
         }
-        val elems = elemsForArguments ++ nonArguments.flatMap(edgeToPathElement)
-        elems
       case _ =>
-        ddgInE(curNode, path).flatMap(edgeToPathElement)
+        Some(PathElement(parNode, callSiteStack, outEdgeLabel = outLabel))
     }
   }
 
-  private def isOutputArgOfInternalMethod(arg: Expression)(implicit semantics: Semantics): Boolean = {
+  def isOutputArgOfInternalMethod(arg: Expression)(implicit semantics: Semantics): Boolean = {
     arg.inCall.l match {
       case List(call) =>
         methodsForCall(call)
@@ -149,90 +251,24 @@ object Engine {
     }
   }
 
-  /** Convert an edge to a path element. This function may return `None` if the edge is found to lead to an argument
-    * that isn't used, according to semantics. It may also return `None` if the child node is an output argument of an
-    * internal function.
-    */
-  private def edgeToPathElement(e: Edge)(implicit semantics: Semantics): Option[PathElement] = {
-    val parentNode = e.outNode().asInstanceOf[CfgNode]
-    val childNode  = e.inNode().asInstanceOf[CfgNode]
-    val outLabel   = Some(e.property(Properties.VARIABLE)).getOrElse("")
-
-    childNode match {
-      case exp: Expression if !exp.isUsed =>
-        None
-      case _ =>
-        Some(PathElement(parentNode, outEdgeLabel = outLabel))
-    }
-  }
-
   /** For a given node `node`, return all incoming reaching definition edges, unless the source node is (a) a METHOD
     * node, (b) already present on `path`, or (c) a CALL node to a method where the semantic indicates that taint is
     * propagated to it.
     */
-  private def ddgInE(node: CfgNode, path: Vector[PathElement])(implicit semantics: Semantics): Vector[Edge] = {
+  private def ddgInE(node: CfgNode, path: Vector[PathElement], callSiteStack: List[Call] = List()): Vector[Edge] = {
     node
       .inE(EdgeTypes.REACHING_DEF)
       .asScala
       .filter { e =>
         e.outNode() match {
           case srcNode: CfgNode =>
-            !srcNode.isInstanceOf[Method] && !path.map(_.node).contains(srcNode) && !isCallRetval(srcNode)
+            !srcNode.isInstanceOf[Method] && !path
+              .map(x => x.node)
+              .contains(srcNode)
           case _ => false
         }
       }
       .toVector
-  }
-
-  private def isCallRetval(node: StoredNode)(implicit semantics: Semantics): Boolean = {
-    node match {
-      case call: Call =>
-        val sem = semantics.forMethod(call.methodFullName)
-        sem.isDefined && !sem.get.mappings.map(_._2).contains(-1)
-      case _ =>
-        false
-    }
-  }
-
-  /** For a given `(parentNode, curNode)` pair, determine whether to expand into `parentNode`. If so, return a
-    * corresponding path element or None if `parentNode` should not be followed. The Path element contains a Boolean
-    * field to specify whether it should be visible in the flow or not, a decision that can also only be made by looking
-    * at both the parent and the child.
-    */
-  private def elemForArgument(e: Edge, curNode: Expression)(implicit semantics: Semantics): Option[PathElement] = {
-
-    val parentNode     = e.outNode().asInstanceOf[Expression]
-    val parentNodeCall = parentNode.inCall.l
-    val sameCallSite   = parentNode.inCall.l == curNode.start.inCall.l
-
-    if (sameCallSite && isOutputArgOfInternalMethod(parentNode)) {
-      return None
-    }
-
-    if (
-      sameCallSite && parentNode.isUsed && curNode.isDefined ||
-      !sameCallSite && curNode.isUsed
-    ) {
-
-      val visible = if (sameCallSite) {
-        val semanticExists         = parentNode.semanticsForCallByArg.nonEmpty
-        val internalMethodsForCall = parentNodeCall.flatMap(methodsForCall).to(Traversal).internal
-        (semanticExists && parentNode.isDefined) || internalMethodsForCall.isEmpty
-      } else {
-        parentNode.isDefined
-      }
-      val isOutputArg = isOutputArgOfInternalMethod(parentNode)
-      Some(
-        PathElement(
-          parentNode,
-          visible,
-          isOutputArg,
-          outEdgeLabel = Some(e.property(Properties.VARIABLE)).getOrElse("")
-        )
-      )
-    } else {
-      None
-    }
   }
 
   def argToOutputParams(arg: Expression): Traversal[MethodParameterOut] = {
@@ -269,29 +305,6 @@ object Engine {
     }
   }
 
-  def deduplicate(vec: Vector[ReachableByResult]): Vector[ReachableByResult] = {
-    vec
-      .groupBy { x =>
-        (x.path.headOption ++ x.path.lastOption, x.partial, x.callDepth)
-      }
-      .map { case (_, list) =>
-        val lenIdPathPairs = list.map(x => (x.path.length, x)).toList
-        val withMaxLength = (lenIdPathPairs.sortBy(_._1).reverse match {
-          case Nil    => Nil
-          case h :: t => h :: t.takeWhile(y => y._1 == h._1)
-        }).map(_._2)
-
-        if (withMaxLength.length == 1) {
-          withMaxLength.head
-        } else {
-          withMaxLength.minBy { x =>
-            x.path.map(_.node.id()).mkString("-")
-          }
-        }
-      }
-      .toVector
-  }
-
 }
 
 /** The execution context for the data flow engine.
@@ -300,7 +313,7 @@ object Engine {
   * @param config
   *   additional configurations for the data flow engine.
   */
-case class EngineContext(semantics: Semantics, config: EngineConfig = EngineConfig())
+case class EngineContext(semantics: Semantics = DefaultSemantics(), config: EngineConfig = EngineConfig())
 
 /** Various configurations for the data flow engine.
   * @param maxCallDepth
@@ -311,8 +324,8 @@ case class EngineContext(semantics: Semantics, config: EngineConfig = EngineConf
   *   enables sharing of previously calculated paths among other tasks.
   */
 case class EngineConfig(
-  var maxCallDepth: Int = 2,
-  initialTable: Option[ResultTable] = None,
+  var maxCallDepth: Int = 4,
+  initialTable: Option[mutable.Map[TaskFingerprint, Vector[ReachableByResult]]] = None,
   shareCacheBetweenTasks: Boolean = true
 )
 

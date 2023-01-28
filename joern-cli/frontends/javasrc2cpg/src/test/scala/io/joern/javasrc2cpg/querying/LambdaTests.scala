@@ -1,19 +1,17 @@
 package io.joern.javasrc2cpg.querying
 
 import io.joern.javasrc2cpg.testfixtures.JavaSrcCode2CpgFixture
-import io.shiftleft.codepropertygraph.generated.edges.{Binds, Capture, Ref}
+import io.shiftleft.codepropertygraph.generated.edges.{Capture, Ref}
 import io.shiftleft.codepropertygraph.generated.{DispatchTypes, Operators}
 import io.shiftleft.codepropertygraph.generated.nodes.{
   Binding,
-  Block,
   Call,
   ClosureBinding,
   Identifier,
   Local,
   MethodParameterIn,
   MethodRef,
-  Return,
-  TypeDecl
+  Return
 }
 import io.shiftleft.semanticcpg.language._
 import overflowdb.traversal.jIteratortoTraversal
@@ -106,8 +104,8 @@ class LambdaTests extends JavaSrcCode2CpgFixture {
     }
 
     "create locals for captured identifiers in the lambda method" in {
-      cpg.typeDecl.name("Foo").method.name(".*lambda.*").local.l match {
-        case List(fallbackLocal: Local, inputLocal: Local) =>
+      cpg.typeDecl.name("Foo").method.name(".*lambda.*").local.sortBy(_.name) match {
+        case Seq(fallbackLocal: Local, inputLocal: Local) =>
           inputLocal.name shouldBe "input"
           inputLocal.code shouldBe "input"
           inputLocal.typeFullName shouldBe "java.lang.String"
@@ -121,8 +119,8 @@ class LambdaTests extends JavaSrcCode2CpgFixture {
     }
 
     "create closure bindings for captured identifiers" in {
-      cpg.all.collectAll[ClosureBinding].l match {
-        case List(fallbackClosureBinding, _) =>
+      cpg.all.collectAll[ClosureBinding].sortBy(_.closureOriginalName) match {
+        case Seq(fallbackClosureBinding, _) =>
           fallbackClosureBinding.label shouldBe "CLOSURE_BINDING"
 
           val fallbackLocal = cpg.method.name(".*lambda.*").local.name("fallback").head
@@ -131,7 +129,7 @@ class LambdaTests extends JavaSrcCode2CpgFixture {
           fallbackClosureBinding.outE.collectAll[Ref].map(_.inNode()).l match {
             case List(capturedParam: MethodParameterIn) =>
               capturedParam.name shouldBe "fallback"
-              capturedParam.method.head.fullName shouldBe "Foo.test1:void(java.lang.String,java.lang.String)"
+              capturedParam.method.fullName shouldBe "Foo.test1:void(java.lang.String,java.lang.String)"
             case result => fail(s"Expected single capturedParam but got $result")
           }
 
@@ -451,8 +449,8 @@ class LambdaTests extends JavaSrcCode2CpgFixture {
     "resolve calls in the body of the lambda" in {
       cpg.method.name(".*lambda.*").call.name("sink").l match {
         case sink :: Nil =>
-          sink.methodFullName shouldBe "Foo.sink:void(java.lang.Float,java.lang.Float)"
-          sink.signature shouldBe "void(java.lang.Float,java.lang.Float)"
+          sink.methodFullName shouldBe "Foo.sink:void(java.lang.Float,java.lang.String)"
+          sink.signature shouldBe "void(java.lang.Float,java.lang.String)"
 
         case result => fail(s"Expected single call to sink but got $result")
       }
@@ -564,7 +562,7 @@ class LambdaTests extends JavaSrcCode2CpgFixture {
           capturedClosureBinding.outE.collectAll[Ref].map(_.inNode()).l match {
             case List(capturedParam: MethodParameterIn) =>
               capturedParam.name shouldBe "captured"
-              capturedParam.method.head.fullName shouldBe "TestClass.test:Foo(java.lang.String)"
+              capturedParam.method.fullName shouldBe "TestClass.test:Foo(java.lang.String)"
             case result => fail(s"Expected single capturedParam but got $result")
           }
 

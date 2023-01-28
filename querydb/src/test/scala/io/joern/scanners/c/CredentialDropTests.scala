@@ -1,14 +1,8 @@
 package io.joern.scanners.c
 
 import io.joern.suites.CQueryTestSuite
-import io.shiftleft.codepropertygraph.generated.nodes
-import io.joern.console.scan._
-import io.shiftleft.semanticcpg.language._
-import overflowdb.traversal._
 
-class CredentialDropTests extends CQueryTestSuite {
-
-  override def queryBundle = CredentialDrop
+class CredentialDropTests extends CQueryTestSuite(CredentialDrop) {
 
   "find cases where user changes are not preceded by calls to set*gid and setgroups" in {
     val query   = queryBundle.userCredDrop()

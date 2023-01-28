@@ -1,16 +1,28 @@
 package io.joern.joerncli
 
 import better.files.File
-import io.joern.console.cpgcreation.{cpgGeneratorForLanguage, guessLanguage}
+import io.joern.console.cpgcreation.{cpgGeneratorForLanguage, guessLanguage, CpgGenerator}
 import io.joern.console.{FrontendConfig, InstallConfig}
 import io.joern.joerncli.CpgBasedTool.newCpgCreatedString
 import io.shiftleft.codepropertygraph.generated.Languages
+
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
-object JoernParse extends App {
-
+object JoernParse {
   // Special string used to separate joern-parse opts from frontend-specific opts
-  val ARGS_DELIMITER = "--frontend-args"
+  val ARGS_DELIMITER          = "--frontend-args"
+  val DEFAULT_CPG_OUT_FILE    = "cpg.bin"
+  var generator: CpgGenerator = _
+
+  def main(args: Array[String]) = {
+    run(args) match {
+      case Right(msg) => println(msg)
+      case Left(errMsg) =>
+        println(s"Failure: $errMsg")
+        System.exit(1)
+    }
+  }
 
   val optionParser = new scopt.OptionParser[ParserConfig]("joern-parse") {
     arg[String]("input")
@@ -38,10 +50,10 @@ object JoernParse extends App {
 
     opt[Unit]("nooverlays")
       .text("do not apply default overlays")
-      .action((x, c) => c.copy(enhance = false))
+      .action((_, c) => c.copy(enhance = false))
     opt[Unit]("overlaysonly")
       .text("Only apply default overlays")
-      .action((x, c) => c.copy(enhanceOnly = true))
+      .action((_, c) => c.copy(enhanceOnly = true))
 
     opt[Int]("max-num-def")
       .text("Maximum number of definitions in per-method data flow calculation")
@@ -53,20 +65,10 @@ object JoernParse extends App {
     note(s"Args specified after the $ARGS_DELIMITER separator will be passed to the front-end verbatim")
   }
 
-  val DEFAULT_CPG_OUT_FILE = "cpg.bin"
+  private def run(args: Array[String]): Either[String, String] = {
+    val (parserArgs, frontendArgs) = CpgBasedTool.splitArgs(args)
+    val installConfig              = new InstallConfig()
 
-  val (parserArgs, frontendArgs) = CpgBasedTool.splitArgs(args)
-  val installConfig              = new InstallConfig()
-
-  run() match {
-    case Right(msg) => println(msg)
-
-    case Left(errMsg) =>
-      println(s"Failure: $errMsg")
-      System.exit(1)
-  }
-
-  private def run(): Either[String, String] = {
     parseConfig(parserArgs) match {
       case Right(config) =>
         if (config.listLanguages) {
@@ -75,7 +77,7 @@ object JoernParse extends App {
           for {
             _        <- checkInputPath(config)
             language <- getLanguage(config)
-            _        <- generateCpg(config, language)
+            _        <- generateCpg(installConfig, frontendArgs, config, language)
             _        <- applyDefaultOverlays(config)
           } yield newCpgCreatedString(config.outputCpgFile)
 
@@ -96,7 +98,7 @@ object JoernParse extends App {
   }
 
   private def buildLanguageList(): String = {
-    val s = new StringBuilder()
+    val s = new mutable.StringBuilder()
     s ++= "Available languages (case insensitive):\n"
     s ++= Languages.ALL.asScala.map(lang => s"- ${lang.toLowerCase}").mkString("\n")
     s.toString()
@@ -118,13 +120,18 @@ object JoernParse extends App {
     }
   }
 
-  private def generateCpg(config: ParserConfig, language: String): Either[String, String] = {
+  private def generateCpg(
+    installConfig: InstallConfig,
+    frontendArgs: List[String],
+    config: ParserConfig,
+    language: String
+  ): Either[String, String] = {
     if (config.enhanceOnly) {
       Right("No generation required")
     } else {
       println(s"Parsing code at: ${config.inputPath} - language: `$language`")
       println("[+] Running language frontend")
-      val generator =
+      generator =
         cpgGeneratorForLanguage(language.toUpperCase, FrontendConfig(), installConfig.rootPath.path, frontendArgs).get
       generator.generate(config.inputPath, outputPath = config.outputCpgFile, namespaces = config.namespaces) match {
         case Some(cmd) => Right(cmd)
@@ -137,7 +144,9 @@ object JoernParse extends App {
     try {
       println("[+] Applying default overlays")
       if (config.enhance) {
-        DefaultOverlays.create(config.outputCpgFile, config.maxNumDef).close()
+        val cpg = DefaultOverlays.create(config.outputCpgFile, config.maxNumDef)
+        generator.applyPostProcessingPasses(cpg)
+        cpg.close()
       }
       Right("Code property graph generation successful")
     } catch {

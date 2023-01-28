@@ -5,7 +5,7 @@ import io.joern.javasrc2cpg.testfixtures.JavaSrcCode2CpgFixture
 
 class BindingTests extends JavaSrcCode2CpgFixture {
   "override for generic method" should {
-    val cpg = code("""
+    lazy val cpg = code("""
         |import java.util.function.Consumer;
         |
         |class SomeConsumer implements Consumer<Integer> {
@@ -27,7 +27,7 @@ class BindingTests extends JavaSrcCode2CpgFixture {
   }
 
   "override for generic method" should {
-    val cpg = code(
+    lazy val cpg = code(
       """
         |import java.util.function.Consumer;
         |
@@ -56,7 +56,8 @@ class BindingTests extends JavaSrcCode2CpgFixture {
         .map(binding => (binding.name, binding.signature, binding.methodFullName))
         .l
       methodBinding should contain theSameElementsAs List(
-        ("accept", "void(java.lang.Object)", "SomeConsumer.accept:void(java.lang.Object)")
+        ("accept", "void(java.lang.Number)", "SomeConsumer.accept:void(java.lang.Number)"),
+        ("accept", "void(java.lang.Object)", "SomeConsumer.accept:void(java.lang.Number)")
       )
     }
 
@@ -67,7 +68,9 @@ class BindingTests extends JavaSrcCode2CpgFixture {
         .map(binding => (binding.name, binding.signature, binding.methodFullName))
         .l
       methodBinding should contain theSameElementsAs List(
-        ("accept", "void(java.lang.Object)", "OtherConsumer.accept:void(java.lang.Object)")
+        ("accept", "void(java.lang.Integer)", "OtherConsumer.accept:void(java.lang.Integer)"),
+        ("accept", "void(java.lang.Number)", "OtherConsumer.accept:void(java.lang.Integer)"),
+        ("accept", "void(java.lang.Object)", "OtherConsumer.accept:void(java.lang.Integer)")
       )
     }
   }

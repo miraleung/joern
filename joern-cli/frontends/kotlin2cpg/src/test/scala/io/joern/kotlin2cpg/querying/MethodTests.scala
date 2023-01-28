@@ -1,12 +1,11 @@
 package io.joern.kotlin2cpg.querying
 
 import io.joern.kotlin2cpg.testfixtures.KotlinCode2CpgFixture
-import io.shiftleft.codepropertygraph.generated.Operators
 import io.shiftleft.semanticcpg.language._
 
 class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   "CPG for code with simple method defined at package-level" should {
-    lazy val cpg = code("""
+    val cpg = code("""
        |fun double(x: Int): Int {
        |  return x * 2
        |}
@@ -22,7 +21,6 @@ class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should contain method nodes with the correct fields" in {
       val List(x) = cpg.method.name("double").isExternal(false).l
-      x.size shouldBe 1
       x.fullName shouldBe "double:int(int)"
       x.code shouldBe "double"
       x.signature shouldBe "int(int)"
@@ -32,7 +30,6 @@ class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
       x.filename.endsWith(".kt") shouldBe true
 
       val List(y) = cpg.method.name("main").isExternal(false).l
-      y.size shouldBe 1
       y.fullName shouldBe "main:void(kotlin.Array)"
       y.code shouldBe "main"
       y.signature shouldBe "void(kotlin.Array)"
@@ -64,7 +61,7 @@ class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
   }
 
   "CPG for code with simple class declaration" should {
-    lazy val cpg = code("""
+    val cpg = code("""
         |package com.test.pkg
         |
         |class Foo {
@@ -76,7 +73,6 @@ class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should contain a METHOD node for `bar` with the props set" in {
       val List(m) = cpg.method.name("bar").l
-      m.size shouldBe 1
       m.name shouldBe "bar"
       m.fullName shouldBe "com.test.pkg.Foo.bar:int(int)"
       m.code shouldBe "bar"
@@ -91,7 +87,7 @@ class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
     }
 
     "should allow traversing to parameters" in {
-      cpg.method.name("bar").parameter.name.toSet shouldBe Set("x")
+      cpg.method.name("bar").parameter.name.toSet shouldBe Set("this", "x")
     }
 
     "should allow traversing to methodReturn" in {
@@ -104,6 +100,14 @@ class MethodTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
     "should allow traversing to block" in {
       cpg.method.name("bar").block.l should not be empty
+    }
+  }
+
+  "CPG for code with method without a body-block" should {
+    val cpg = code("fun printX(x: String) = println(x)")
+
+    "should contain a METHOD node with one expression in its corresponding BLOCK" in {
+      cpg.method.nameExact("printX").block.expressionDown.size shouldBe 1
     }
   }
 }

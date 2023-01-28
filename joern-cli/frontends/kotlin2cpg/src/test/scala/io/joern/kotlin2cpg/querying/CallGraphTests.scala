@@ -5,11 +5,11 @@ import io.shiftleft.semanticcpg.language._
 
 class CallGraphTests extends KotlinCode2CpgFixture(withOssDataflow = false) {
 
-  implicit val resolver = NoResolve
+  implicit val resolver: ICallResolver = NoResolve
 
-  "CPG for code with simple function definition" should {
+  "CPG for code with simple function declaration" should {
 
-    lazy val cpg = code("""
+    val cpg = code("""
         |package mypkg
         |
         |fun add(x: Int, y: Int): Int {

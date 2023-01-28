@@ -1,18 +1,18 @@
 name               := "jssrc2cpg"
 scalaVersion       := "2.13.8"
-crossScalaVersions := Seq("2.13.8", "3.1.1")
+crossScalaVersions := Seq("2.13.8", "3.2.1")
 
-dependsOn(Projects.dataflowengineoss % Test, Projects.x2cpg % "compile->compile;test->test")
+dependsOn(Projects.dataflowengineoss, Projects.x2cpg % "compile->compile;test->test")
+
+val astGenVersion = "2.10.0"
 
 libraryDependencies ++= Seq(
   "io.shiftleft"              %% "codepropertygraph" % Versions.cpg,
   "com.lihaoyi"               %% "upickle"           % "2.0.0",
-  "com.fasterxml.jackson.core" % "jackson-databind"  % "2.13.3",
+  "com.fasterxml.jackson.core" % "jackson-databind"  % "2.14.1",
   "org.apache.logging.log4j"   % "log4j-slf4j-impl"  % Versions.log4j     % Runtime,
   "org.scalatest"             %% "scalatest"         % Versions.scalatest % Test
 )
-
-Test / packageBin / publishArtifact := true
 
 Compile / doc / scalacOptions ++= Seq("-doc-title", "semanticcpg apidocs", "-doc-version", version.value)
 
@@ -61,9 +61,44 @@ scalacOptions ++= Seq() ++ (
 )
 
 compile / javacOptions ++= Seq("-Xlint:all", "-Xlint:-cast", "-g")
-Test / fork := true
+Test / fork := false
 
 enablePlugins(JavaAppPackaging, LauncherJarPlugin)
+
+lazy val astGenDlUrl       = s"https://github.com/joernio/astgen/releases/download/v$astGenVersion/"
+lazy val astGenBinaryNames = Seq("astgen-linux", "astgen-macos", "astgen-macos-arm", "astgen-win.exe")
+
+lazy val astGenDlTask = taskKey[Unit](s"Download astgen binaries")
+astGenDlTask := {
+  val astGenDir = baseDirectory.value / "bin" / "astgen"
+  astGenDir.mkdirs()
+
+  astGenBinaryNames.foreach { fileName =>
+    val dest = astGenDir / fileName
+    if (!dest.exists) {
+      val url            = s"$astGenDlUrl$fileName"
+      val downloadedFile = SimpleCache.downloadMaybe(url)
+      IO.copyFile(downloadedFile, dest)
+    }
+  }
+
+  val distDir = (Universal / stagingDirectory).value / "bin" / "astgen"
+  distDir.mkdirs()
+  IO.copyDirectory(astGenDir, distDir)
+
+  // permissions are lost during the download; need to set them manually
+  astGenDir.listFiles().foreach(_.setExecutable(true, false))
+  distDir.listFiles().foreach(_.setExecutable(true, false))
+}
+Compile / compile := ((Compile / compile) dependsOn astGenDlTask).value
+
+// Also remove astgen binaries with clean, e.g., to allow for updating them.
+// Sadly, we can't define the bin/ folders globally,
+// as .value can only be used within a task or setting macro
+cleanFiles ++= Seq(
+  baseDirectory.value / "bin" / "astgen",
+  (Universal / stagingDirectory).value / "bin" / "astgen"
+) ++ astGenBinaryNames.map(fileName => SimpleCache.encodeFile(s"$astGenDlUrl$fileName"))
 
 Universal / packageName       := name.value
 Universal / topLevelDirectory := None

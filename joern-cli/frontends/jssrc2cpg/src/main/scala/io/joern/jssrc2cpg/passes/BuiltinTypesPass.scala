@@ -3,39 +3,32 @@ package io.joern.jssrc2cpg.passes
 import io.shiftleft.codepropertygraph.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{NewNamespaceBlock, NewType, NewTypeDecl}
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, NodeTypes}
-import io.shiftleft.passes.SimpleCpgPass
-import org.slf4j.LoggerFactory
+import io.shiftleft.passes.CpgPass
 
-class BuiltinTypesPass(cpg: Cpg) extends SimpleCpgPass(cpg) {
-
-  private val logger = LoggerFactory.getLogger(getClass)
+class BuiltinTypesPass(cpg: Cpg) extends CpgPass(cpg) {
 
   override def run(diffGraph: DiffGraphBuilder): Unit = {
-    logger.debug("Generating builtin types.")
-
     val namespaceBlock = NewNamespaceBlock()
-      .name(Defines.GLOBAL_NAMESPACE)
-      .fullName(Defines.GLOBAL_NAMESPACE)
+      .name(Defines.GlobalNamespace)
+      .fullName(Defines.GlobalNamespace)
       .order(0)
       .filename("builtintypes")
 
     diffGraph.addNode(namespaceBlock)
 
-    Defines.values.zipWithIndex.map { case (typeName: Defines.Tpe, index) =>
-      val typeNameLabel = typeName.label
-
+    Defines.JsTypes.zipWithIndex.map { case (typeName: String, index) =>
       val tpe = NewType()
-        .name(typeNameLabel)
-        .fullName(typeNameLabel)
-        .typeDeclFullName(typeNameLabel)
+        .name(typeName)
+        .fullName(typeName)
+        .typeDeclFullName(typeName)
       diffGraph.addNode(tpe)
 
       val typeDecl = NewTypeDecl()
-        .name(typeNameLabel)
-        .fullName(typeNameLabel)
-        .isExternal(false)
+        .name(typeName)
+        .fullName(typeName)
+        .isExternal(true)
         .astParentType(NodeTypes.NAMESPACE_BLOCK)
-        .astParentFullName(Defines.GLOBAL_NAMESPACE)
+        .astParentFullName(Defines.GlobalNamespace)
         .order(index + 1)
         .filename("builtintypes")
 

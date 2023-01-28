@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.psi.{
   KtClassOrObject,
   KtDestructuringDeclarationEntry,
   KtExpression,
+  KtFile,
   KtLambdaArgument,
   KtLambdaExpression,
   KtNameReferenceExpression,
@@ -22,6 +23,8 @@ import org.jetbrains.kotlin.psi.{
 }
 
 trait TypeInfoProvider {
+  def containingTypeDeclFullName(ktFn: KtNamedFunction, defaultValue: String): String
+
   def isStaticMethodCall(expr: KtQualifiedExpression): Boolean
 
   def returnType(elem: KtNamedFunction, defaultValue: String): String
@@ -78,6 +81,8 @@ trait TypeInfoProvider {
 
   def returnTypeFullName(expr: KtLambdaExpression): String
 
+  def hasApplyOrAlsoScopeFunctionParent(expr: KtLambdaExpression): Boolean
+
   def nameReferenceKind(expr: KtNameReferenceExpression): NameReferenceKinds.NameReferenceKind
 
   def isConstructorCall(expr: KtCallExpression): Option[Boolean]
@@ -103,4 +108,6 @@ trait TypeInfoProvider {
   def isRefToCompanionObject(expr: KtNameReferenceExpression): Boolean
 
   def typeFullName(expr: KtClassOrObject, defaultValue: String): String
+
+  def typeFromImports(name: String, file: KtFile): Option[String]
 }

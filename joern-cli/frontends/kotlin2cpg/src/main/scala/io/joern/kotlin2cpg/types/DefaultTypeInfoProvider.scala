@@ -1,5 +1,7 @@
 package io.joern.kotlin2cpg.types
 
+import io.joern.x2cpg.Defines
+import io.shiftleft.codepropertygraph.generated.Operators
 import io.shiftleft.passes.KeyPool
 import org.jetbrains.kotlin.cli.jvm.compiler.{
   KotlinCoreEnvironment,
@@ -22,11 +24,14 @@ import org.jetbrains.kotlin.psi.{
   KtArrayAccessExpression,
   KtBinaryExpression,
   KtCallExpression,
+  KtClassBody,
   KtClassLiteralExpression,
   KtClassOrObject,
   KtDestructuringDeclarationEntry,
   KtElement,
   KtExpression,
+  KtFile,
+  KtImportDirective,
   KtLambdaExpression,
   KtNameReferenceExpression,
   KtNamedFunction,
@@ -87,8 +92,15 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
   def fullName(expr: KtTypeAlias, defaultValue: String): String = {
     val mapForEntity = bindingsForEntity(bindingContext, expr)
     Option(mapForEntity.get(BindingContext.TYPE_ALIAS.getKey))
-      .map(TypeRenderer.renderFqName)
+      .map(TypeRenderer.renderFqNameForDesc)
       .filter(isValidRender)
+      .getOrElse(defaultValue)
+  }
+
+  def containingTypeDeclFullName(ktFn: KtNamedFunction, defaultValue: String): String = {
+    val mapForEntity = bindingsForEntity(bindingContext, ktFn)
+    Option(mapForEntity.get(BindingContext.FUNCTION.getKey))
+      .map { fnDesc => TypeRenderer.renderFqNameForDesc(fnDesc.getContainingDeclaration) }
       .getOrElse(defaultValue)
   }
 
@@ -98,8 +110,7 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
       .collect { case s: JavaSourceElement => s }
       .map(_.getJavaElement)
       .collect { case bjm: BinaryJavaMethod => bjm }
-      .map(_.isStatic)
-      .getOrElse(false)
+      .exists(_.isStatic)
   }
 
   def fullNameWithSignature(expr: KtDestructuringDeclarationEntry, defaultValue: (String, String)): (String, String) = {
@@ -110,7 +121,7 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
           if (!fnDesc.isActual && fnDesc.getOverriddenDescriptors.asScala.nonEmpty)
             fnDesc.getOverriddenDescriptors.asScala.toList.head
           else fnDesc
-        val renderedFqName     = TypeRenderer.renderFqName(relevantDesc)
+        val renderedFqName     = TypeRenderer.renderFqNameForDesc(relevantDesc)
         val returnTypeFullName = renderedReturnType(relevantDesc.getOriginal)
 
         val renderedParameterTypes =
@@ -130,8 +141,7 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
     val mapForEntity = bindingsForEntity(bindingContext, expr)
     Option(mapForEntity)
       .map(_.getKeys)
-      .map(_.contains(BindingContext.SHORT_REFERENCE_TO_COMPANION_OBJECT.getKey))
-      .getOrElse(false)
+      .exists(_.contains(BindingContext.SHORT_REFERENCE_TO_COMPANION_OBJECT.getKey))
   }
 
   def typeFullName(expr: KtDestructuringDeclarationEntry, defaultValue: String): String = {
@@ -183,11 +193,23 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
 
   def propertyType(expr: KtProperty, defaultValue: String): String = {
     val mapForEntity = bindingsForEntity(bindingContext, expr)
-    Option(mapForEntity.get(BindingContext.VARIABLE.getKey))
-      .map(_.getType)
-      .map(TypeRenderer.render(_))
-      .filter(isValidRender)
-      .getOrElse(defaultValue)
+    val render =
+      Option(mapForEntity.get(BindingContext.VARIABLE.getKey))
+        .map(_.getType)
+        .map(TypeRenderer.render(_))
+        .filter(isValidRender)
+
+    render match {
+      case Some(value) if value == Defines.UnresolvedNamespace =>
+        Option(expr.getTypeReference)
+          .map { typeRef =>
+            typeFromImports(typeRef.getText, expr.getContainingKtFile).getOrElse(typeRef.getText)
+          }
+          .getOrElse(defaultValue)
+      case Some(aValue) => aValue
+      case None         => defaultValue
+    }
+
   }
 
   def typeFullName(expr: KtClassOrObject, defaultValue: String): String = {
@@ -203,26 +225,38 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
     Option(mapForEntity.get(BindingContext.CLASS.getKey))
       .map(getSuperclassDescriptors)
       .filter(_.asScala.nonEmpty)
-      .map(_.asScala.map { superClassDesc =>
-        TypeRenderer.render(superClassDesc.getDefaultType)
-      }.toList)
+      .map(
+        _.asScala
+          .map { superClassDesc =>
+            TypeRenderer.render(superClassDesc.getDefaultType)
+          }
+          .toList
+      )
       .getOrElse(defaultValue)
   }
 
   def fullName(expr: KtClassOrObject, defaultValue: String): String = {
     val mapForEntity = bindingsForEntity(bindingContext, expr)
-    Option(mapForEntity.get(BindingContext.CLASS.getKey))
+    val nonLocalFullName = Option(mapForEntity.get(BindingContext.CLASS.getKey))
       .map(_.getDefaultType)
       .map(TypeRenderer.render(_))
       .filter(isValidRender)
       .getOrElse(defaultValue)
+    if (expr.isLocal) {
+
+      val fnDescMaybe = Option(mapForEntity.get(BindingContext.CLASS.getKey))
+      fnDescMaybe
+        .map(_.getContainingDeclaration)
+        .map { containingDecl =>
+          s"${TypeRenderer.renderFqNameForDesc(containingDecl.getOriginal)}.${expr.getName}"
+        }
+        .getOrElse(nonLocalFullName)
+    } else nonLocalFullName
   }
 
   def isCompanionObject(expr: KtClassOrObject): Boolean = {
     val mapForEntity = bindingsForEntity(bindingContext, expr)
-    Option(mapForEntity.get(BindingContext.CLASS.getKey))
-      .map(DescriptorUtils.isCompanionObject(_))
-      .getOrElse(false)
+    Option(mapForEntity.get(BindingContext.CLASS.getKey)).exists(DescriptorUtils.isCompanionObject(_))
   }
 
   def typeFullName(expr: KtParameter, defaultValue: String): String = {
@@ -248,7 +282,7 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
       .map(_.getArguments.asScala)
       .filter(_.nonEmpty)
       .map { typeArguments =>
-        val firstTypeArg = typeArguments.toList(0)
+        val firstTypeArg = typeArguments.toList.head
         val rendered     = TypeRenderer.render(firstTypeArg.getType)
         val retType      = expressionType(expr, TypeConstants.any)
         val signature    = s"$retType()"
@@ -289,19 +323,18 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
   }
 
   def isConstructorCall(expr: KtCallExpression): Option[Boolean] = {
-    resolvedCallDescriptor(expr)
-      .collect {
-        case _: ClassConstructorDescriptorImpl     => Some(true)
-        case _: TypeAliasConstructorDescriptorImpl => Some(true)
-        case _                                     => Some(false)
-      }
-      .getOrElse(None)
+    resolvedCallDescriptor(expr).collect {
+      case _: ClassConstructorDescriptorImpl     => Some(true)
+      case _: TypeAliasConstructorDescriptorImpl => Some(true)
+      case _                                     => Some(false)
+    }.flatten
   }
 
   def fullNameWithSignature(expr: KtCallExpression, defaultValue: (String, String)): (String, String) = {
-    resolvedCallDescriptor(expr)
-      .map(_.getOriginal)
-      .map { originalDesc =>
+
+    resolvedCallDescriptor(expr) match {
+      case Some(desc) =>
+        val originalDesc = desc.getOriginal
         val relevantDesc = originalDesc match {
           case typedDesc: TypeAliasConstructorDescriptorImpl =>
             typedDesc.getUnderlyingConstructorDescriptor
@@ -322,14 +355,28 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
             .mkString(",")
         val signature = s"$returnTypeFullName($renderedParameterTypes)"
 
-        val renderedFqName = TypeRenderer.renderFqName(relevantDesc)
+        val renderedFqName = TypeRenderer.renderFqNameForDesc(relevantDesc)
         val fullName =
           if (isConstructorCall(expr).getOrElse(false)) s"$renderedFqName${TypeConstants.initPrefix}:$signature"
           else s"$renderedFqName:$signature"
         if (!isValidRender(fullName) || !isValidRender(signature)) defaultValue
         else (fullName, signature)
-      }
-      .getOrElse(defaultValue)
+      case None =>
+        val relevantSubexpression = subexpressionForResolvedCallInfo(expr)
+        val numArgs               = expr.getValueArguments.size
+        val ambiguousReferences =
+          Option(bindingContext.get(BindingContext.AMBIGUOUS_REFERENCE_TARGET, relevantSubexpression))
+            .map(_.toArray.toSeq.collect { case desc: FunctionDescriptor => desc })
+            .getOrElse(Seq())
+        val chosenAmbiguousReference = ambiguousReferences.find(_.getValueParameters.size == numArgs)
+        chosenAmbiguousReference
+          .map { desc =>
+            val signature = Defines.UnresolvedSignature
+            val fullName  = s"${TypeRenderer.renderFqNameForDesc(desc)}:$signature($numArgs)"
+            (fullName, signature)
+          }
+          .getOrElse(defaultValue)
+    }
   }
 
   def typeFullName(expr: KtBinaryExpression, defaultValue: String): String = {
@@ -354,7 +401,7 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
           if (originalDesc.isInstanceOf[ClassConstructorDescriptorImpl]) {
             s"$renderedReturnType.${TypeConstants.initPrefix}:$signature"
           } else {
-            val renderedFqName = TypeRenderer.renderFqName(originalDesc)
+            val renderedFqName = TypeRenderer.renderFqNameForDesc(originalDesc)
             s"$renderedFqName:$signature"
           }
         if (!isValidRender(fullName) || !isValidRender(signature)) defaultValue
@@ -366,20 +413,18 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
   def containingDeclFullName(expr: KtCallExpression): Option[String] = {
     resolvedCallDescriptor(expr)
       .map(_.getContainingDeclaration)
-      .map(TypeRenderer.renderFqName)
+      .map(TypeRenderer.renderFqNameForDesc)
   }
 
   def containingDeclType(expr: KtQualifiedExpression, defaultValue: String): String = {
     resolvedCallDescriptor(expr)
       .map(_.getContainingDeclaration)
-      .map(TypeRenderer.renderFqName)
+      .map(TypeRenderer.renderFqNameForDesc)
       .getOrElse(defaultValue)
   }
 
   def hasStaticDesc(expr: KtQualifiedExpression): Boolean = {
-    resolvedCallDescriptor(expr)
-      .map(_.getDispatchReceiverParameter == null)
-      .getOrElse(true)
+    resolvedCallDescriptor(expr).forall(_.getDispatchReceiverParameter == null)
   }
 
   def bindingKind(expr: KtQualifiedExpression): CallKinds.CallKind = {
@@ -409,18 +454,18 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
     resolvedCallDescriptor(expr) match {
       case Some(fnDescriptor) =>
         val originalDesc          = fnDescriptor.getOriginal
-        val renderedFqNameForDesc = TypeRenderer.renderFqName(originalDesc)
+        val renderedFqNameForDesc = TypeRenderer.renderFqNameForDesc(originalDesc)
 
         val renderedFqNameMaybe = for {
           extensionReceiverParam <- Option(originalDesc.getExtensionReceiverParameter)
           erpType = extensionReceiverParam.getType
         } yield {
           if (erpType.isInstanceOf[UnresolvedType]) {
-            s"${TypeConstants.cpgUnresolved}.${expr.getName}"
+            s"${Defines.UnresolvedNamespace}.${expr.getName}"
           } else {
             val rendered =
               if (renderedFqNameForDesc.startsWith(TypeConstants.kotlinApplyPrefix)) TypeConstants.javaLangObject
-              else TypeRenderer.render(erpType, false, false)
+              else TypeRenderer.render(erpType, shouldMapPrimitiveArrayTypes = false, unwrapPrimitives = false)
             s"$rendered.${originalDesc.getName}"
           }
         }
@@ -432,24 +477,86 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
         val renderedReturnType =
           if (renderedFqNameForDesc.startsWith(TypeConstants.kotlinApplyPrefix)) TypeConstants.javaLangObject
           else TypeRenderer.render(originalDesc.getReturnType)
-        val signature = s"$renderedReturnType($renderedParameterTypes)"
-        (s"$renderedFqName:$signature", signature)
-      case None => defaultValue
+
+        val singleLambdaArgExprMaybe = expr.getSelectorExpression match {
+          case c: KtCallExpression if c.getLambdaArguments.size() == 1 =>
+            Some(c.getLambdaArguments.get(0).getLambdaExpression)
+          case _ => None
+        }
+        val fullNameSignature = s"$renderedReturnType($renderedParameterTypes)"
+        val signature =
+          singleLambdaArgExprMaybe
+            .map(lambdaInvocationSignature)
+            .getOrElse(fullNameSignature)
+        (s"$renderedFqName:$fullNameSignature", signature)
+      case None =>
+        resolvedCallDescriptor(expr.getReceiverExpression) match {
+          case Some(desc) =>
+            desc match {
+              case _: ClassConstructorDescriptorImpl | _: TypeAliasConstructorDescriptorImpl =>
+                expr.getSelectorExpression match {
+                  case _: KtNameReferenceExpression => (Operators.fieldAccess, "")
+                  case _                            => defaultValue
+                }
+              case _ =>
+                val originalDesc = desc.getOriginal
+                val lhsName      = TypeRenderer.render(originalDesc.getReturnType)
+                val name         = expr.getSelectorExpression.getFirstChild.getText
+                val numArgs = expr.getSelectorExpression match {
+                  case c: KtCallExpression => c.getValueArguments.size()
+                  case _                   => 0
+                }
+                val signature = s"${Defines.UnresolvedSignature}($numArgs)"
+                val fullName  = s"$lhsName.$name:$signature"
+                (fullName, signature)
+            }
+          case None => defaultValue
+        }
     }
   }
 
-  def parameterType(expr: KtParameter, defaultValue: String): String = {
+  def lambdaInvocationSignature(expr: KtLambdaExpression): String = {
+    val paramsString =
+      if (expr.getValueParameters.isEmpty) TypeConstants.javaLangObject
+      else
+        s"${TypeConstants.javaLangObject}${("," + TypeConstants.javaLangObject).repeat(expr.getValueParameters.size())}"
+    s"${TypeConstants.javaLangObject}($paramsString)"
+  }
+
+  def parameterType(parameter: KtParameter, defaultValue: String): String = {
     // TODO: add specific test for no binding info of parameter
     // triggered by exception in https://github.com/agrosner/DBFlow
     // TODO: ...also test cases for non-null binding info for other fns
     val render = for {
-      mapForEntity <- Option(bindingsForEntity(bindingContext, expr))
+      mapForEntity <- Option(bindingsForEntity(bindingContext, parameter))
       variableDesc <- Option(mapForEntity.get(BindingContext.VALUE_PARAMETER.getKey))
       render = TypeRenderer.render(variableDesc.getType)
       if isValidRender(render)
     } yield render
 
-    render.getOrElse(defaultValue)
+    render match {
+      case Some(value) if value == Defines.UnresolvedNamespace =>
+        Option(parameter.getTypeReference)
+          .map { typeRef =>
+            typeFromImports(typeRef.getText, parameter.getContainingKtFile).getOrElse(typeRef.getText)
+          }
+          .getOrElse(defaultValue)
+      case Some(aValue) => aValue
+      case None         => defaultValue
+    }
+  }
+
+  def hasApplyOrAlsoScopeFunctionParent(expr: KtLambdaExpression): Boolean = {
+    expr.getParent.getParent match {
+      case callExpr: KtCallExpression =>
+        resolvedCallDescriptor(callExpr) match {
+          case Some(desc) =>
+            val rendered = TypeRenderer.renderFqNameForDesc(desc.getOriginal)
+            rendered.startsWith(TypeConstants.kotlinApplyPrefix) || rendered.startsWith(TypeConstants.kotlinAlsoPrefix)
+          case _ => false
+        }
+      case _ => false
+    }
   }
 
   def returnTypeFullName(expr: KtLambdaExpression): String = {
@@ -457,12 +564,11 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
   }
 
   def fullNameWithSignature(expr: KtLambdaExpression, keyPool: KeyPool): (String, String) = {
-    val containingFile = expr.getContainingKtFile
-    val fileName       = containingFile.getName
-    val packageName    = containingFile.getPackageFqName.toString
-    val lambdaNum      = keyPool.next
-    val astDerivedFullName =
-      packageName + ":" + "<lambda>" + "<f_" + fileName + "_no" + lambdaNum + ">" + "()"
+    val containingFile      = expr.getContainingKtFile
+    val fileName            = containingFile.getName
+    val packageName         = containingFile.getPackageFqName.toString
+    val lambdaNum           = keyPool.next
+    val astDerivedFullName  = s"$packageName:<lambda><f_${fileName}_no$lambdaNum>()"
     val astDerivedSignature = anySignature(expr.getValueParameters.asScala.toList)
 
     val render = for {
@@ -477,9 +583,8 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
         if (args.isEmpty) ""
         else if (args.size == 1) TypeConstants.javaLangObject
         else s"${TypeConstants.javaLangObject}${("," + TypeConstants.javaLangObject) * (args.size - 1)}"
-      val signature = TypeConstants.javaLangObject + "(" + renderedArgs + ")"
-      val fullName =
-        packageName + ".<lambda><f_" + fileName + "_no" + lambdaNum.toString + ">" + ":" + signature
+      val signature = s"${TypeConstants.javaLangObject}($renderedArgs)"
+      val fullName  = s"$packageName.<lambda><f_${fileName}_no${lambdaNum.toString}>:$signature"
       (fullName, signature)
     }
     render.getOrElse((astDerivedFullName, astDerivedSignature))
@@ -512,16 +617,16 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
         Option(parameter.getTypeReference)
           .map(_.getText)
           .map(TypeRenderer.stripped)
-          .getOrElse(TypeConstants.cpgUnresolved)
+          .getOrElse(Defines.UnresolvedNamespace)
       // TODO: return all the parameter types in this fn for registration, otherwise they will be missing
       parameterType(parameter, explicitTypeFullName)
     }
     val paramListSignature = s"(${paramTypeNames.mkString(",")})"
     val methodName = Option(fnDesc)
       .map { desc =>
-        s"${TypeRenderer.renderFqName(desc.get)}${TypeConstants.initPrefix}"
+        s"${TypeRenderer.renderFqNameForDesc(desc.get)}${TypeConstants.initPrefix}"
       }
-      .getOrElse(s"${TypeConstants.cpgUnresolved}.${TypeConstants.initPrefix}")
+      .getOrElse(s"${Defines.UnresolvedNamespace}.${TypeConstants.initPrefix}")
     val signature = s"${TypeConstants.void}$paramListSignature"
     val fullname  = s"$methodName:$signature"
     (fullname, signature)
@@ -535,15 +640,15 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
     val paramTypeNames = expr.getValueParameters.asScala.map { parameter =>
       val explicitTypeFullName = Option(parameter.getTypeReference)
         .map(_.getText)
-        .getOrElse(TypeConstants.cpgUnresolved)
+        .getOrElse(Defines.UnresolvedNamespace)
       // TODO: return all the parameter types in this fn for registration, otherwise they will be missing
       parameterType(parameter, TypeRenderer.stripped(explicitTypeFullName))
     }
     val paramListSignature = s"(${paramTypeNames.mkString(",")})"
 
     val methodName = Option(bindingContext.get(BindingContext.CONSTRUCTOR, expr))
-      .map { info => s"${TypeRenderer.renderFqName(info)}${TypeConstants.initPrefix}" }
-      .getOrElse(s"${TypeConstants.cpgUnresolved}.${TypeConstants.initPrefix}")
+      .map { info => s"${TypeRenderer.renderFqNameForDesc(info)}${TypeConstants.initPrefix}" }
+      .getOrElse(s"${Defines.UnresolvedNamespace}.${TypeConstants.initPrefix}")
     val signature = s"${TypeConstants.void}$paramListSignature"
     val fullname  = s"$methodName:$signature"
     (fullname, signature)
@@ -551,12 +656,12 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
 
   def fullNameWithSignature(expr: KtNamedFunction, defaultValue: (String, String)): (String, String) = {
     val fnDescMaybe        = Option(bindingContext.get(BindingContext.FUNCTION, expr))
-    val returnTypeFullName = fnDescMaybe.map(renderedReturnType(_)).getOrElse(TypeConstants.cpgUnresolved)
+    val returnTypeFullName = fnDescMaybe.map(renderedReturnType(_)).getOrElse(Defines.UnresolvedNamespace)
     val paramTypeNames = expr.getValueParameters.asScala.map { parameter =>
       val explicitTypeFullName =
         Option(parameter.getTypeReference)
           .map(_.getText)
-          .getOrElse(TypeConstants.cpgUnresolved)
+          .getOrElse(Defines.UnresolvedNamespace)
       // TODO: return all the parameter types in this fn for registration, otherwise they will be missing
       parameterType(parameter, TypeRenderer.stripped(explicitTypeFullName))
     }
@@ -568,15 +673,25 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
       erpType = extensionReceiverParam.getType
     } yield {
       if (erpType.isInstanceOf[UnresolvedType]) {
-        s"${TypeConstants.cpgUnresolved}.${expr.getName}"
+        s"${Defines.UnresolvedNamespace}.${expr.getName}"
       } else {
         val theType      = fnDescMaybe.get.getExtensionReceiverParameter.getType
         val renderedType = TypeRenderer.render(theType)
         s"$renderedType.${expr.getName}"
       }
     }
+
+    val nameNoParent = s"${methodName.getOrElse(expr.getFqName)}"
+    val name = if (expr.getContext.isInstanceOf[KtClassBody] || expr.isLocal) {
+      fnDescMaybe
+        .map(_.getContainingDeclaration)
+        .map { containingDecl =>
+          s"${TypeRenderer.renderFqNameForDesc(containingDecl.getOriginal)}.${expr.getName}"
+        }
+        .getOrElse(nameNoParent)
+    } else nameNoParent
     val signature = s"$returnTypeFullName$paramListSignature"
-    val fullname  = s"${methodName.getOrElse(expr.getFqName)}:$signature"
+    val fullname  = s"$name:$signature"
     (fullname, signature)
   }
 
@@ -595,7 +710,7 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
 
   def referenceTargetTypeFullName(expr: KtNameReferenceExpression, defaultValue: String): String = {
     descriptorForNameReference(expr)
-      .collect { case desc: PropertyDescriptorImpl => TypeRenderer.renderFqName(desc.getContainingDeclaration) }
+      .collect { case desc: PropertyDescriptorImpl => TypeRenderer.renderFqNameForDesc(desc.getContainingDeclaration) }
       .getOrElse(defaultValue)
   }
 
@@ -643,13 +758,20 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
         case typedDesc: LazyJavaClassDescriptor           => Some(TypeRenderer.render(typedDesc.getDefaultType))
         case typedDesc: DeserializedClassDescriptor       => Some(TypeRenderer.render(typedDesc.getDefaultType))
         case typedDesc: EnumEntrySyntheticClassDescriptor => Some(TypeRenderer.render(typedDesc.getDefaultType))
-        case typedDesc: LazyPackageViewDescriptorImpl     => Some(TypeRenderer.renderFqName(typedDesc))
+        case typedDesc: LazyPackageViewDescriptorImpl     => Some(TypeRenderer.renderFqNameForDesc(typedDesc))
         case unhandled: Any =>
           logger.debug(s"Unhandled class type info fetch in for `${expr.getText}` with class `${unhandled.getClass}`.")
           None
-        case _ => None
+        case null => None
       }
       .getOrElse(defaultValue)
+  }
+  def typeFromImports(name: String, file: KtFile): Option[String] = {
+    file.getImportList.getImports.asScala.flatMap { directive =>
+      if (directive.getImportedName != null && directive.getImportedName.toString == name.stripSuffix("?"))
+        Some(directive.getImportPath.getPathStr)
+      else None
+    }.headOption
   }
 
   def implicitParameterName(expr: KtLambdaExpression): Option[String] = {
@@ -658,20 +780,21 @@ class DefaultTypeInfoProvider(environment: KotlinCoreEnvironment) extends TypeIn
     }
     val containingQualifiedExpression = Option(expr.getParent)
       .map(_.getParent)
-      .map(_.getParent match {
+      .flatMap(_.getParent match {
         case q: KtQualifiedExpression => Some(q)
         case _                        => None
       })
-      .getOrElse(None)
     containingQualifiedExpression match {
       case Some(qualifiedExpression) =>
         resolvedCallDescriptor(qualifiedExpression) match {
           case Some(fnDescriptor) =>
             val originalDesc   = fnDescriptor.getOriginal
-            val renderedFqName = TypeRenderer.renderFqName(originalDesc)
+            val renderedFqName = TypeRenderer.renderFqNameForDesc(originalDesc)
             if (
               renderedFqName.startsWith(TypeConstants.kotlinLetPrefix) ||
-              renderedFqName.startsWith(TypeConstants.kotlinAlsoPrefix)
+              renderedFqName.startsWith(TypeConstants.kotlinAlsoPrefix) ||
+              renderedFqName.startsWith(TypeConstants.kotlinTakeIfPrefix) ||
+              renderedFqName.startsWith(TypeConstants.kotlinTakeUnlessPrefix)
             ) {
               Some(TypeConstants.scopeFunctionItParameterName)
             } else if (
@@ -711,13 +834,11 @@ object DefaultTypeInfoProvider {
     } catch {
       case noSuchField: NoSuchFieldException =>
         logger.debug(
-          "Encountered _no such field_ exception while retrieving type info for `" + entity.getName + "`: `" + noSuchField + "`."
+          s"Encountered _no such field_ exception while retrieving type info for `${entity.getName}`: `$noSuchField`."
         )
         KeyFMap.EMPTY_MAP
       case e if NonFatal(e) =>
-        logger.debug(
-          "Encountered general exception while retrieving type info for `" + entity.getName + "`: `" + e + "`."
-        )
+        logger.debug(s"Encountered general exception while retrieving type info for `${entity.getName}`: `$e`.")
         KeyFMap.EMPTY_MAP
     }
   }

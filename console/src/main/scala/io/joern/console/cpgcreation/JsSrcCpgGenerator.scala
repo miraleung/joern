@@ -1,6 +1,8 @@
 package io.joern.console.cpgcreation
 
 import io.joern.console.FrontendConfig
+import io.joern.jssrc2cpg.JsSrc2Cpg
+import io.shiftleft.codepropertygraph.Cpg
 
 import java.nio.file.Path
 
@@ -15,9 +17,16 @@ case class JsSrcCpgGenerator(config: FrontendConfig, rootPath: Path) extends Cpg
     namespaces: List[String] = List()
   ): Option[String] = {
     val arguments = Seq(inputPath, "--output", outputPath) ++ config.cmdLineParams
-    runShellCommand(command.toString, arguments).map(_ => outputPath)
+    runShellCommand(command.toString, arguments).toOption.map(_ => outputPath)
   }
 
   override def isAvailable: Boolean =
     command.toFile.exists
+
+  override def applyPostProcessingPasses(cpg: Cpg): Cpg = {
+    JsSrc2Cpg.postProcessingPasses(cpg).foreach(_.createAndApply())
+    cpg
+  }
+
+  override def isJvmBased = true
 }

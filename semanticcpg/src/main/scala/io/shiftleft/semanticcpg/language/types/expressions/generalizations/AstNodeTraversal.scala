@@ -4,7 +4,7 @@ import io.shiftleft.codepropertygraph.generated.nodes._
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, NodeTypes}
 import io.shiftleft.semanticcpg.language._
 import overflowdb.traversal.help.Doc
-import overflowdb.traversal.{Traversal, help, iterableToTraversal, toElementTraversal, toNodeTraversal}
+import overflowdb.traversal.{Traversal, help, toElementTraversal, toNodeTraversal}
 
 @help.Traversal(elementType = classOf[AstNode])
 class AstNodeTraversal[A <: AstNode](val traversal: Traversal[A]) extends AnyVal {
@@ -12,8 +12,9 @@ class AstNodeTraversal[A <: AstNode](val traversal: Traversal[A]) extends AnyVal
   /** Nodes of the AST rooted in this node, including the node itself.
     */
   @Doc(info = "All nodes of the abstract syntax tree")
-  def ast: Traversal[AstNode] =
+  def ast: Traversal[AstNode] = {
     traversal.repeat(_.out(EdgeTypes.AST))(_.emit).cast[AstNode]
+  }
 
   /** All nodes of the abstract syntax tree rooted in this node, which match `predicate`. Equivalent of `match` in the
     * original CPG paper.
@@ -22,7 +23,7 @@ class AstNodeTraversal[A <: AstNode](val traversal: Traversal[A]) extends AnyVal
     ast.filter(predicate)
 
   def containsCallTo(regex: String): Traversal[A] =
-    traversal.filter(_.ast.isCall.name(regex).size > 0)
+    traversal.filter(_.ast.isCall.name(regex).nonEmpty)
 
   @Doc(info = "Depth of the abstract syntax tree")
   def depth: Traversal[Int] =
@@ -42,12 +43,17 @@ class AstNodeTraversal[A <: AstNode](val traversal: Traversal[A]) extends AnyVal
   /** Direct children of node in the AST. Siblings are ordered by their `order` fields
     */
   def astChildren: Traversal[AstNode] =
-    traversal.out(EdgeTypes.AST).cast[AstNode].sortBy(_.order)
+    traversal.flatMap(_.astChildren).sortBy(_.order)
 
   /** Parent AST node
     */
   def astParent: Traversal[AstNode] =
     traversal.in(EdgeTypes.AST).cast[AstNode]
+
+  /** Siblings of this node in the AST, ordered by their `order` fields
+    */
+  def astSiblings: Traversal[AstNode] =
+    traversal.flatMap(_.astSiblings)
 
   /** Traverses up the AST and returns the first block node.
     */
@@ -160,8 +166,8 @@ class AstNodeTraversal[A <: AstNode](val traversal: Traversal[A]) extends AnyVal
 
   /** Traverse only to AST nodes that are type reference
     */
-  def isTypeRef: Traversal[MethodRef] =
-    traversal.collectAll[MethodRef]
+  def isTypeRef: Traversal[TypeRef] =
+    traversal.collectAll[TypeRef]
 
   /** Traverse only to AST nodes that are METHOD
     */
@@ -182,6 +188,11 @@ class AstNodeTraversal[A <: AstNode](val traversal: Traversal[A]) extends AnyVal
     */
   def isParameter: Traversal[MethodParameterIn] =
     traversal.collectAll[MethodParameterIn]
+
+  /** Traverse only to AST nodes that are TemplateDom nodes
+    */
+  def isTemplateDom: Traversal[TemplateDom] =
+    traversal.collectAll[TemplateDom]
 
   /** Traverse only to AST nodes that are TYPE_DECL
     */

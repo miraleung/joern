@@ -1,50 +1,42 @@
 package io.joern.jssrc2cpg.utils
 
-import io.joern.x2cpg.utils.ExternalCommand
 import org.slf4j.LoggerFactory
-
 import java.nio.file.Paths
-import scala.util.{Failure, Success}
 
 object Environment {
 
-  private var isValid: Option[Boolean] = None
+  object OperatingSystemType extends Enumeration {
+    type OperatingSystem = Value
+
+    val Windows, Linux, Mac, Unknown = Value
+  }
+
+  object ArchitectureType extends Enumeration {
+    type Architecture = Value
+
+    val X86, ARM = Value
+  }
+
+  val OperatingSystem: OperatingSystemType.OperatingSystem =
+    if (scala.util.Properties.isMac) OperatingSystemType.Mac
+    else if (scala.util.Properties.isLinux) OperatingSystemType.Linux
+    else if (scala.util.Properties.isWin) OperatingSystemType.Windows
+    else OperatingSystemType.Unknown
+
+  val Architecture: ArchitectureType.Architecture =
+    if (scala.util.Properties.propOrNone("os.arch").contains("aarch64")) ArchitectureType.ARM
+    // We do not distinguish between x86 and x64. E.g, a 64 bit Windows will always lie about
+    // this and will report x86 anyway for backwards compatibility with 32 bit software.
+    else ArchitectureType.X86
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def allPathsExist(paths: Set[String]): Boolean = {
-    val invalidPaths = paths.collect { case p if !Paths.get(p).toFile.exists() => p }
-    if (invalidPaths.isEmpty) {
-      true
-    } else {
-      invalidPaths.foreach(p => logger.error(s"Input path '$p' does not exist!"))
+  def pathExists(path: String): Boolean = {
+    if (!Paths.get(path).toFile.exists()) {
+      logger.error(s"Input path '$path' does not exist!")
       false
-    }
-  }
-
-  def valid(): Boolean = isValid match {
-    case Some(value) =>
-      value
-    case None =>
-      isValid = Some(astgenAvailable())
-      isValid.get
-  }
-
-  private def astgenAvailable(): Boolean = {
-    logger.debug(s"\t+ Checking astgen ...")
-    ExternalCommand.run("astgen --version", ".") match {
-      case Success(result) =>
-        logger.debug(s"\t+ astgen is available (version: ${result.headOption.getOrElse("unknown")})")
-        true
-      case Failure(_) =>
-        val hint =
-          s"""\t- astgen is not installed! Please make sure you have 'npm' installed.
-              |  Then run the astgen installation:
-              |   - Linux/MacOS: 'sudo npm install -g @joernio/astgen'
-              |   - Windows 'npm install -g @joernio/astgen' in a console with admin rights
-              |  """.stripMargin
-        logger.error(hint)
-        false
+    } else {
+      true
     }
   }
 

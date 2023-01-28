@@ -2,27 +2,21 @@ package io.joern.javasrc2cpg.util
 
 import io.joern.javasrc2cpg.passes.ExpectedType
 import io.joern.javasrc2cpg.util.Scope.ScopeTypes.{MethodScope, NamespaceScope, ScopeType, TypeDeclScope}
-import io.joern.javasrc2cpg.util.Scope.{VariableNodeType, WildcardImportName}
+import io.joern.javasrc2cpg.util.Scope.WildcardImportName
 import io.joern.x2cpg.Ast
 import io.joern.x2cpg.datastructures.{ScopeElement, Scope => X2CpgScope}
-import io.shiftleft.codepropertygraph.generated.nodes.{
-  DeclarationNew,
-  HasName,
-  HasNameMutable,
-  HasTypeFullName,
-  NewLocal,
-  NewMember,
-  NewMethod,
-  NewMethodParameterIn,
-  NewNamespaceBlock,
-  NewNode,
-  NewTypeDecl
-}
+import io.shiftleft.codepropertygraph.generated.nodes._
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 
-case class NodeTypeInfo(node: VariableNodeType, isField: Boolean = false, isStatic: Boolean = false)
+case class NodeTypeInfo(
+  node: NewNode,
+  name: String,
+  typeFullName: Option[String],
+  isField: Boolean = false,
+  isStatic: Boolean = false
+)
 
 class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
 
@@ -30,12 +24,14 @@ class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
   private var typeDeclStack: List[NewTypeDecl]              = Nil
   private var lambdaMethods: List[mutable.ArrayBuffer[Ast]] = Nil
   private var lambdaDecls: List[mutable.ArrayBuffer[Ast]]   = Nil
+  private var memberInits: List[mutable.ArrayBuffer[Ast]]   = Nil
 
   override def pushNewScope(scope: ScopeType): Unit = {
     scope match {
       case TypeDeclScope(declNode) =>
         typeDeclStack = declNode :: typeDeclStack
         lambdaMethods = mutable.ArrayBuffer[Ast]() :: lambdaMethods
+        memberInits = mutable.ArrayBuffer[Ast]() :: memberInits
       case NamespaceScope =>
         lambdaDecls = mutable.ArrayBuffer[Ast]() :: lambdaMethods
       case _ => // Nothing to do in this case
@@ -44,18 +40,12 @@ class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
     super.pushNewScope(scope)
   }
 
-  def getCapturedVariables: List[NewNode with HasTypeFullName with HasNameMutable] = {
-    stack
-      .foldLeft(List.empty[NewNode]) { (acc, stackEntry) =>
-        acc ++ stackEntry.variables.values.map(_.node)
-      }
-      .collect {
-        case param: NewMethodParameterIn => param
-        case local: NewLocal             => local
-      }
-      .groupBy(_.name)
-      .map { case (_, vars) => vars.head }
-      .toList
+  def getCapturedVariables: List[NodeTypeInfo] = {
+    stack.flatMap(_.variables.values).filter { nodeTypeInfo =>
+      val node        = nodeTypeInfo.node
+      val isValidType = node.isInstanceOf[NewMethodParameterIn] || node.isInstanceOf[NewLocal]
+      isValidType && nodeTypeInfo.name != NameConstants.This
+    }
   }
 
   override def popScope(): Option[ScopeType] = {
@@ -64,6 +54,7 @@ class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
       case Some(TypeDeclScope(typeDecl)) =>
         typeDeclStack = typeDeclStack.tail
         lambdaMethods = lambdaMethods.tail
+        memberInits = memberInits.tail
         Some(TypeDeclScope(typeDecl))
 
       case Some(NamespaceScope) =>
@@ -74,8 +65,8 @@ class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
     }
   }
 
-  def addToScope(identifier: String, node: VariableNodeType): Unit = {
-    addToScope(identifier, NodeTypeInfo(node))
+  def addToScope(node: NewNode, name: String, typeFullName: Option[String]): Unit = {
+    addToScope(identifier = name, NodeTypeInfo(node, name = name, typeFullName = typeFullName))
   }
 
   def getEnclosingTypeDecl: Option[NewTypeDecl] = {
@@ -120,11 +111,43 @@ class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
     }
   }
 
-  def lookupVariableType(identifier: String): Option[String] = {
-    lookupVariable(identifier).map(_.node.typeFullName)
+  def lookupVariableType(identifier: String, wildcardFallback: Boolean = false): Option[String] = {
+    lookupVariable(identifier)
+      .flatMap(_.typeFullName)
+      .orElse(
+        Option
+          .when(wildcardFallback) {
+            getWildcardType(identifier)
+          }
+          .flatten
+      )
   }
 
-  def getWildcardType(identifier: String): Option[String] = {
+  def addMemberInitializersToScope(inits: Seq[Ast]): Unit = {
+    memberInits match {
+      case currMembers :: _ => currMembers.addAll(inits)
+      case Nil              => logger.warn("Attempting to add static initializes without memberInits in scope.")
+    }
+  }
+
+  def getMemberInitializers: Seq[Ast] = {
+    memberInits match {
+      case currMembers :: _ =>
+        currMembers.toSeq.map { ast =>
+          ast.root match {
+            case Some(root: AstNodeNew) =>
+              ast.subTreeCopy(root)
+
+            case _ => Ast()
+          }
+        }
+      case Nil =>
+        logger.warn("Attemping to fetch initializers from scope with uninitialized memberInits. Inits may be missing.")
+        Seq.empty
+    }
+  }
+
+  private def getWildcardType(identifier: String): Option[String] = {
     lookupVariableType(WildcardImportName) map { importName =>
       s"$importName.$identifier"
     }
@@ -139,15 +162,13 @@ class Scope extends X2CpgScope[String, NodeTypeInfo, ScopeType] {
 
 object Scope {
   val WildcardImportName: String = "*"
-  type VariableNodeType      = NewNode with HasTypeFullName
-  type NamedVariableNodeType = VariableNodeType with HasName
 
   object ScopeTypes {
     sealed trait ScopeType
-    final case class TypeDeclScope(declNode: NewTypeDecl)  extends ScopeType
-    final case class MethodScope(returnType: ExpectedType) extends ScopeType
-    final case object BlockScope                           extends ScopeType
-    final case object NamespaceScope                       extends ScopeType
+    case class TypeDeclScope(declNode: NewTypeDecl)  extends ScopeType
+    case class MethodScope(returnType: ExpectedType) extends ScopeType
+    case object BlockScope                           extends ScopeType
+    case object NamespaceScope                       extends ScopeType
   }
 
   def apply(): Scope = new Scope()
